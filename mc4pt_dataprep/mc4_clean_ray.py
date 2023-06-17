@@ -417,7 +417,7 @@ def main(_):
         old_dir=tmp_dir,
         new_dir=final_dir,
         parallelism=FLAGS.parallelism or mp.cpu_count(),
-        shard_format=FLAGS.split + '{0:05d}-of-{1:05d}.parquet')
+        shard_format=FLAGS.split + '-{0:05d}-of-{1:05d}.parquet')
 
     logging.info('Finished!')
 
