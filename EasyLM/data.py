@@ -1,15 +1,10 @@
-import dataclasses
-import pprint
 import time
 from functools import partial
 import json
 from multiprocessing import Pool
 
-import h5py
 import mlxu
-from ml_collections.config_dict import config_dict
 from ml_collections import ConfigDict
-from tqdm import tqdm, trange
 import numpy as np
 
 from datasets import load_dataset
@@ -17,6 +12,7 @@ from datasets import load_dataset
 # required for dataset cleaning
 import nltk
 import ftfy
+
 nltk.download('stopwords')
 PT_STOPWORDS = set(map(str.lower, nltk.corpus.stopwords.words('portuguese')))
 
@@ -41,15 +37,14 @@ class DatasetFactory(object):
         config = cls.get_default_config(config)
         text_processor = TextProcessor(config.text_processor, tokenizer)
         if config.type == 'huggingface':
-            return HuggingfaceDataset(
-                config.huggingface_dataset, tokenizer, text_processor, **kwargs
-            )
+            return HuggingfaceDataset(config.huggingface_dataset, tokenizer,
+                                      text_processor, **kwargs)
         elif config.type == 'json':
-            return JsonDataset(
-                config.json_dataset,
-                tokenizer,
-                text_processor,
-                **kwargs)
+            return JsonDataset(config.json_dataset, tokenizer, text_processor,
+                               **kwargs)
+        elif config.type == 'huggingface_clean':
+            return HuggingfaceCleanDataset(config.huggingface_dataset,
+                                           tokenizer, text_processor, **kwargs)
         # TODO: Add seqio type here
         elif config.type == 'seqio':
             raise NotImplementedError('Seqio is not yet supported.')
@@ -118,8 +113,7 @@ class TextProcessor(object):
             else:
                 subfields = field.split('+')
                 text = self.config.subfield_separator.join(
-                    [example[subfield] for subfield in subfields]
-                )
+                    [example[subfield] for subfield in subfields])
                 if i == 0:
                     text = self.config.prepend_text + text
                 tokens = self.tokenizer.encode(text)
@@ -159,11 +153,10 @@ class HuggingfaceDataset(object):
         split = self.config.split if self.config.split != '' else None
         self._tokenizer = tokenizer
         self._text_processor = text_processor
-        self._dataset = load_dataset(
-            self.config.path,
-            name,
-            split=split,
-            streaming=self.config.streaming)
+        self._dataset = load_dataset(self.config.path,
+                                     name,
+                                     split=split,
+                                     streaming=self.config.streaming)
 
     def __iter__(self):
         chunk_size = self.config.batch_size * self.config.seq_length
@@ -182,15 +175,18 @@ class HuggingfaceDataset(object):
                         'dataset_total_tokens': total_tokens,
                     }
                     batch = {
-                        'input_tokens': np.array(token_buffer[:chunk_size], dtype=np.int32).reshape(
-                            self.config.batch_size, -1
-                        ),
-                        'target_tokens': np.array(token_buffer[1:chunk_size + 1], dtype=np.int32).reshape(
-                            self.config.batch_size, -1
-                        ),
-                        'loss_masks': np.array(loss_mask_buffer[1:chunk_size + 1], dtype=np.float32).reshape(
-                            self.config.batch_size, -1
-                        ),
+                        'input_tokens':
+                        np.array(token_buffer[:chunk_size],
+                                 dtype=np.int32).reshape(
+                                     self.config.batch_size, -1),
+                        'target_tokens':
+                        np.array(token_buffer[1:chunk_size + 1],
+                                 dtype=np.int32).reshape(
+                                     self.config.batch_size, -1),
+                        'loss_masks':
+                        np.array(loss_mask_buffer[1:chunk_size + 1],
+                                 dtype=np.float32).reshape(
+                                     self.config.batch_size, -1),
                     }
                     if self.config.always_start_with_bos:
                         batch['input_tokens'][:,
@@ -276,7 +272,7 @@ class JsonDataset(object):
             while True:
                 line = fin.readline()
                 self._file_loc = fin.tell()
-                if not line:   # Reached EOF
+                if not line:  # Reached EOF
                     self._index = 0
                     fin.seek(0)
                     continue
@@ -304,20 +300,20 @@ class JsonDataset(object):
         else:
             process_pool = Pool(self.config.tokenizer_processes)
             batched_iterator = self.batched(
-                self.json_iterator(), self.config.tokenizer_parallel_batch_size
-            )
+                self.json_iterator(),
+                self.config.tokenizer_parallel_batch_size)
             with process_pool as pool:
                 map_fn = partial(self.text_processor, has_aux=True)
                 next_batch = pool.map_async(
-                    map_fn, next(batched_iterator),
-                    chunksize=self.config.tokenizer_parallel_chunk_size
-                )
+                    map_fn,
+                    next(batched_iterator),
+                    chunksize=self.config.tokenizer_parallel_chunk_size)
                 while True:
                     current_batch = next_batch
                     next_batch = pool.map_async(
-                        map_fn, next(batched_iterator),
-                        chunksize=self.config.tokenizer_parallel_chunk_size
-                    )
+                        map_fn,
+                        next(batched_iterator),
+                        chunksize=self.config.tokenizer_parallel_chunk_size)
                     for example in current_batch.get():
                         yield example
 
@@ -336,12 +332,13 @@ class JsonDataset(object):
                 self._total_tokens += chunk_size
                 step_times.append(time.time() - last_time)
                 last_time = time.time()
-                if len(step_times) > self.config.throughput_average_window_size:
-                    step_times = step_times[-self.config.throughput_average_window_size:]
+                if len(step_times
+                       ) > self.config.throughput_average_window_size:
+                    step_times = step_times[-self.config.
+                                            throughput_average_window_size:]
                 average_throughput = chunk_size / np.mean(step_times)
-                accumulated_throughput = (
-                    (self._total_tokens - start_tokens) / (time.time() - start_time)
-                )
+                accumulated_throughput = ((self._total_tokens - start_tokens) /
+                                          (time.time() - start_time))
                 metrics = {
                     'dataset_file_loc': loc,
                     'dataset_example_index': index,
@@ -350,15 +347,18 @@ class JsonDataset(object):
                     'dataset_average_tps': average_throughput,
                 }
                 batch = {
-                    'input_tokens': np.array(token_buffer[:chunk_size], dtype=np.int32).reshape(
-                        self.config.batch_size, -1
-                    ),
-                    'target_tokens': np.array(token_buffer[1:chunk_size + 1], dtype=np.int32).reshape(
-                        self.config.batch_size, -1
-                    ),
-                    'loss_masks': np.array(loss_mask_buffer[1:chunk_size + 1], dtype=np.float32).reshape(
-                        self.config.batch_size, -1
-                    ),
+                    'input_tokens':
+                    np.array(token_buffer[:chunk_size],
+                             dtype=np.int32).reshape(self.config.batch_size,
+                                                     -1),
+                    'target_tokens':
+                    np.array(token_buffer[1:chunk_size + 1],
+                             dtype=np.int32).reshape(self.config.batch_size,
+                                                     -1),
+                    'loss_masks':
+                    np.array(loss_mask_buffer[1:chunk_size + 1],
+                             dtype=np.float32).reshape(self.config.batch_size,
+                                                       -1),
                 }
                 if self.config.always_start_with_bos:
                     batch['input_tokens'][:, 0] = self.tokenizer.bos_token_id
@@ -377,11 +377,11 @@ class JsonDataset(object):
     def load_state_dict(self, state_dict):
         if 'config' in state_dict:
             self.config.update(ConfigDict(state_dict['config']))
-        self._index = state_dict.get(
-            'index', self.config.example_index_at_start)
+        self._index = state_dict.get('index',
+                                     self.config.example_index_at_start)
         self._file_loc = state_dict.get('file_loc', self.config.start_seek_loc)
-        self._total_tokens = state_dict.get(
-            'total_tokens', self.config.tokens_count_at_start)
+        self._total_tokens = state_dict.get('total_tokens',
+                                            self.config.tokens_count_at_start)
 
     @property
     def seq_length(self):
@@ -421,7 +421,9 @@ class HuggingfaceCleanDataset(HuggingfaceDataset):
         config.seq_length = 2048
         config.batch_size = 8
         config.always_start_with_bos = False
-        # shuffle configs
+        # new configs
+        config.max_examples = None
+        config.shuffle = True
         config.seed = 12345
         config.shuffle_buffer_size = 10_000
 
@@ -435,21 +437,33 @@ class HuggingfaceCleanDataset(HuggingfaceDataset):
         split = self.config.split if self.config.split != '' else None
         self._tokenizer = tokenizer
         self._text_processor = text_processor
-        self._dataset = load_dataset(
-            self.config.path,
-            name,
-            split=split,
-            streaming=self.config.streaming)
-        self.dataset = (
-            self._dataset
-            # shuffle is done at file and example level
-            .shuffle(seed=self.config.seed,
-                     buffer_size=config.shuffle_buffer_size)
-            .map(self.clean_document)
-            .filter(lambda ex: not ex['any_filter'])
-            .remove_columns(['any_filter']))
+
+        self._dataset = load_dataset(self.config.path,
+                                     name,
+                                     split=split,
+                                     streaming=self.config.streaming)
+        # shuffle and slicing are different for map and iterable datasets
+        if self.config.streaming:
+            if self.config.shuffle:
+                self._dataset = self._dataset.shuffle(
+                    seed=self.config.seed,
+                    buffer_size=self.config.shuffle_buffer_size)
+            if self.config.max_examples is not None:
+                self._dataset = self._dataset.take(self.config.max_examples)
+        else:
+            if self.config.shuffle:
+                self._dataset = self._dataset.shuffle(seed=self.config.seed)
+            if self.config.max_examples is not None:
+                self._dataset = self._dataset.select(
+                    range(self.config.max_examples))
+        # clean and filter are the same
+        self.dataset = self._dataset.map(self.clean_document)
+        self._dataset = self._dataset.filter(lambda ex: not ex['any_filter'])
+        self._dataset = self._dataset.remove_columns(['any_filter'])
 
     def clean_document(self, ex):
+        """Clean and filter a single document."""
+        # flake8: noqa: E501
         """Process a single document, returning a dictionary of features.
 
         If the document is valid, we also tokenize it and return the tokenized.
@@ -500,9 +514,10 @@ class HuggingfaceCleanDataset(HuggingfaceDataset):
         alpha_ratio = num_alpha / num_words
         # apply a "stop word" filter, to remove documents that do not contain at
         # least two of the following English words: the, be, to, of, and,
-        # that, have, with; this adequately deals with ostensibly English documents
-        # that contain no coherent English text. (USE PORTUGUESE FOR THIS)
-        num_stopwords = sum([w.lower() in stopwords for w in words])
+        # # that, have, with; this adequately deals with ostensibly English
+        # documents that contain no coherent English text.
+        # (WE ADAPT THIS FOR PORTUGUESE)
+        num_stopwords = sum([w.lower() in PT_STOPWORDS for w in words])
 
         # apply filters
         num_words_filter = not (50 <= num_words <= 100_000)
@@ -569,11 +584,10 @@ class SeqioTaskDataset(object):
         split = self.config.split if self.config.split != '' else None
         self._tokenizer = tokenizer
         self._text_processor = text_processor
-        self._dataset = load_dataset(
-            self.config.path,
-            name,
-            split=split,
-            streaming=self.config.streaming)
+        self._dataset = load_dataset(self.config.path,
+                                     name,
+                                     split=split,
+                                     streaming=self.config.streaming)
 
     def __iter__(self):
         chunk_size = self.config.batch_size * self.config.seq_length
@@ -592,15 +606,18 @@ class SeqioTaskDataset(object):
                         'dataset_total_tokens': total_tokens,
                     }
                     batch = {
-                        'input_tokens': np.array(token_buffer[:chunk_size], dtype=np.int32).reshape(
-                            self.config.batch_size, -1
-                        ),
-                        'target_tokens': np.array(token_buffer[1:chunk_size + 1], dtype=np.int32).reshape(
-                            self.config.batch_size, -1
-                        ),
-                        'loss_masks': np.array(loss_mask_buffer[1:chunk_size + 1], dtype=np.float32).reshape(
-                            self.config.batch_size, -1
-                        ),
+                        'input_tokens':
+                        np.array(token_buffer[:chunk_size],
+                                 dtype=np.int32).reshape(
+                                     self.config.batch_size, -1),
+                        'target_tokens':
+                        np.array(token_buffer[1:chunk_size + 1],
+                                 dtype=np.int32).reshape(
+                                     self.config.batch_size, -1),
+                        'loss_masks':
+                        np.array(loss_mask_buffer[1:chunk_size + 1],
+                                 dtype=np.float32).reshape(
+                                     self.config.batch_size, -1),
                     }
                     if self.config.always_start_with_bos:
                         raise NotImplementedError(
