@@ -19,7 +19,7 @@ set -u
 # ERROR: Accessing retired flag 'jax_enable_async_collective_offload' 
 # export LIBTPU_INIT_ARGS='--xla_jf_spmd_threshold_for_windowed_einsum_mib=0 --xla_tpu_spmd_threshold_for_allgather_cse=10000 --xla_tpu_spmd_rewrite_einsum_with_reshape=true --xla_enable_async_all_gather=true --xla_tpu_enable_latency_hiding_scheduler=true TPU_MEGACORE=MEGACORE_DENSE'
 
-export EXP_NAME=mc4-pt-3b-debug-1
+export EXP_NAME=mc4-pt-3b-debug-2
 export MODEL_DIR=${GCS_BUCKET:-gs://your-bucket-name}/open_llama_models/${EXP_NAME}
 
 mkdir -pv logs
@@ -43,20 +43,31 @@ LOG_FILE=./logs/`basename ${0}`_${START_TS}.log
 # --train_dataset.huggingface_dataset.streaming=True \
 # --train_dataset.huggingface_dataset.always_start_with_bos=False \
 
+# --eval_steps=100 \
+
+# --eval_dataset.type='huggingface' \
+# --eval_dataset.text_processor.fields='text' \
+# --eval_dataset.huggingface_dataset.path='allenai/mc4' \
+# --eval_dataset.huggingface_dataset.name='pt' \
+# --eval_dataset.huggingface_dataset.split='validation' \
+# --eval_dataset.huggingface_dataset.streaming=False \
+# --eval_dataset.huggingface_dataset.seq_length=2048 \
+# --eval_dataset.huggingface_dataset.batch_size=8 \
+# --eval_dataset.huggingface_dataset.always_start_with_bos=True \
 
 # --mesh_dim='1,-1,1' \
 echo -e "*****pip requirements*****\n$(pip freeze)" > $LOG_FILE
-(python -m EasyLM.models.llama.llama_train \
+(python -m EasyLM.models.llama.llama_train_v2 \
     --mesh_dim='1,-1,2' \
     --dtype='fp32' \
-    --total_steps=1100 \    
-    --eval_steps=10 \
-    --log_freq=50 \
+    --total_steps=1100 \
     --save_model_freq=0 \
     --save_milestone_freq=500 \
     --load_llama_config='3b' \
     --update_llama_config='' \
     --load_dataset_state='' \
+    --eval_freq=500 \
+    --eval_batches=50 \
     --load_checkpoint="params::${HOME}/original_easylm_weights/open_llama_3b_easylm/open_llama_3b_easylm" \
     --tokenizer.vocab_file="${HOME}/original_easylm_weights/open_llama_3b_easylm/tokenizer.model" \
     --optimizer.type='adamw' \
@@ -72,20 +83,18 @@ echo -e "*****pip requirements*****\n$(pip freeze)" > $LOG_FILE
     --train_dataset.json_dataset.batch_size=2048 \
     --train_dataset.json_dataset.tokenizer_processes=16 \
     --train_dataset.json_dataset.always_start_with_bos=False \
-    --eval_dataset.type='huggingface' \
+    --eval_dataset.type='json' \
     --eval_dataset.text_processor.fields='text' \
-    --eval_dataset.huggingface_dataset.path='mc4' \
-    --eval_dataset.huggingface_dataset.name='pt' \
-    --eval_dataset.huggingface_dataset.split='validation' \
-    --eval_dataset.huggingface_dataset.streaming=True \
-    --eval_dataset.huggingface_dataset.seq_length=2048 \
-    --eval_dataset.huggingface_dataset.batch_size=8 \
-    --eval_dataset.huggingface_dataset.always_start_with_bos=True \
+    --eval_dataset.json_dataset.path="./mc4_validation_debug.jsonl" \
+    --eval_dataset.json_dataset.seq_length=16 \
+    --eval_dataset.json_dataset.batch_size=2048 \
+    --eval_dataset.json_dataset.tokenizer_processes=16 \
+    --eval_dataset.json_dataset.always_start_with_bos=False \
     --checkpointer.save_optimizer_state=True \
     --logger.online=True \
     --logger.prefix='' \
     --logger.project="open_llama_pt" \
-    --logger.output_dir="${MODEL_DIR}/output" \
+    --logger.output_dir="${MODEL_DIR}" \
     --logger.wandb_dir="$HOME/experiment_output/open_llama_3b"
 ) 2>&1 | tee -a $LOG_FILE
 
