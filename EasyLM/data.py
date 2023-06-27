@@ -482,7 +482,7 @@ class HuggingfaceDatasetV2(HuggingfaceDataset):
         # clean and filter are the same
         if self.config.clean_text:
             logging.info('Cleaning and filtering dataset')
-            self.dataset = self._dataset.map(self.clean_document)
+            self._dataset = self._dataset.map(self.clean_document)
             self._dataset = self._dataset.filter(
                 lambda ex: not ex['any_filter'])
             self._dataset = self._dataset.remove_columns(['any_filter'])
