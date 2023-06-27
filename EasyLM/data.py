@@ -1,17 +1,15 @@
+import json
 import time
 from functools import partial
-import json
 from multiprocessing import Pool
 
+import ftfy
 import mlxu
-from ml_collections import ConfigDict
-import numpy as np
-
-from datasets import load_dataset
-
 # required for dataset cleaning
 import nltk
-import ftfy
+import numpy as np
+from datasets import load_dataset
+from ml_collections import ConfigDict
 
 nltk.download('stopwords')
 PT_STOPWORDS = set(map(str.lower, nltk.corpus.stopwords.words('portuguese')))
@@ -42,8 +40,8 @@ class DatasetFactory(object):
         elif config.type == 'json':
             return JsonDataset(config.json_dataset, tokenizer, text_processor,
                                **kwargs)
-        elif config.type == 'huggingface_clean':
-            return HuggingfaceCleanDataset(config.huggingface_dataset,
+        elif config.type == 'huggingface_v2':
+            return HuggingfaceDatasetV2(config.huggingface_dataset,
                                            tokenizer, text_processor, **kwargs)
         # TODO: Add seqio type here
         elif config.type == 'seqio':
