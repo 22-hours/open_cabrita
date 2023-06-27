@@ -43,7 +43,7 @@ and [documentation for running it locally](docs/koala.md).
 ## Installation
 The installation method differs between GPU hosts and Cloud TPU hosts. The first
 step is to pull from GitHub.
-
+time ./pretrain_llama_3b_debug_6.sh
 ``` shell
 git clone https://github.com/young-geng/EasyLM.git
 cd EasyLM
