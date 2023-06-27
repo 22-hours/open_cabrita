@@ -400,15 +400,23 @@ class JsonDataset(object):
         return len(self.tokenizer)
 
 
-class HuggingfaceCleanDataset(HuggingfaceDataset):
+# this dataset will probably be used on V2
+class HuggingFaceDatasetV2(HuggingfaceDataset):
     """ Huggingface dataset, where the dataset is loaded using the huggingface
         datasets.load_dataset() function.
 
     This is a modified version of the HuggingfaceDataset:
-    - ftfy is used for cleaning the text
-    - we apply MassiveText filters to the dataset
+    - optional cleaning:
+        - ftfy is used for cleaning the text
+        -  MassiveText filters to the dataset
     - preprocessing supposes mc4 dataset
     - we supposed streaming data and shuffle the dataset
+    - we can limit the number of examples
+
+    Order of operations is:
+    - load dataset
+    - (maybe) shuffle dataset
+    - (maybe) clean dataset
     """
 
     @staticmethod
@@ -426,6 +434,7 @@ class HuggingfaceCleanDataset(HuggingfaceDataset):
         config.shuffle = True
         config.seed = 12345
         config.shuffle_buffer_size = 10_000
+        config.clean_text = True
 
         if updates is not None:
             config.update(ConfigDict(updates).copy_and_resolve_references())
@@ -456,10 +465,13 @@ class HuggingfaceCleanDataset(HuggingfaceDataset):
             if self.config.max_examples is not None:
                 self._dataset = self._dataset.select(
                     range(self.config.max_examples))
+
         # clean and filter are the same
-        self.dataset = self._dataset.map(self.clean_document)
-        self._dataset = self._dataset.filter(lambda ex: not ex['any_filter'])
-        self._dataset = self._dataset.remove_columns(['any_filter'])
+        if self.config.clean_text:
+            self.dataset = self._dataset.map(self.clean_document)
+            self._dataset = self._dataset.filter(
+                lambda ex: not ex['any_filter'])
+            self._dataset = self._dataset.remove_columns(['any_filter'])
 
     def clean_document(self, ex):
         """Clean and filter a single document."""
