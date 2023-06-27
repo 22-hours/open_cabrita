@@ -53,7 +53,7 @@ FLAGS, FLAGS_DEF = mlxu.define_flags_with_default(
 
     # NOVOS
     eval_freq=1000,
-    eval_batches=1000,
+    eval_batches=10000,
     skip_train_batches=0,
 )
 
@@ -87,13 +87,22 @@ def main(argv):
     # if FLAGS.eval_steps > 0:
     # BUG: pra pegar o dataset de validação, ele precisa
     logging.info('Loading eval dataset...')
-    if FLAGS.eval_freq != 0:
-        eval_dataset = DatasetFactory.load_dataset(FLAGS.eval_dataset,
-                                                   dataset.tokenizer)
-    else:
-        eval_dataset = None
-        # eval_iterator = iter(eval_dataset)
-    logging.info('Loading eval dataset... Done!')
+
+    def _eval_dataset():
+        return DatasetFactory.load_dataset(FLAGS.eval_dataset,
+                                           dataset.tokenizer)
+    
+    # eval dataset will be loaded on each evaluation call but we call it once
+    # here to detect errors early
+    _ = _eval_dataset()
+
+    # if FLAGS.eval_freq != 0:
+    #     eval_dataset = DatasetFactory.load_dataset(FLAGS.eval_dataset,
+    #                                                dataset.tokenizer)
+    # else:
+    #     eval_dataset = None
+    #     # eval_iterator = iter(eval_dataset)
+    # logging.info('Loading eval dataset... Done!')
 
     seq_length = dataset.seq_length
 
@@ -265,12 +274,13 @@ def main(argv):
             # log_metrics = {f"train/{k}": v for k,v in train_metrics.items()}
 
             # eval metrics are logged every eval_every_steps
-            if step % FLAGS.eval_freq == 0 or step == 0:
+            if (step % FLAGS.eval_freq == 0
+                    or step == 0) and FLAGS.eval_batches > 0:
                 # if step % FLAGS.log_freq == 0:
                 eval_metric_list = []
                 logging.info('Running eval')
                 for (eval_batch, _) in tqdm(
-                        itertools.islice(iter(eval_dataset),
+                        itertools.islice(iter(_eval_dataset()),
                                          FLAGS.eval_batches), 'Running eval'):
                     sharded_rng, eval_metrics = sharded_eval_step(
                         train_state, sharded_rng, eval_batch)

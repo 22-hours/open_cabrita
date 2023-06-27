@@ -10,6 +10,7 @@ import nltk
 import numpy as np
 from datasets import load_dataset
 from ml_collections import ConfigDict
+from absl import logging
 
 nltk.download('stopwords')
 PT_STOPWORDS = set(map(str.lower, nltk.corpus.stopwords.words('portuguese')))
@@ -25,6 +26,7 @@ class DatasetFactory(object):
         config.text_processor = TextProcessor.get_default_config()
         config.huggingface_dataset = HuggingfaceDataset.get_default_config()
         config.json_dataset = JsonDataset.get_default_config()
+        config.huggingface_dataset_v2 = HuggingfaceDatasetV2.get_default_config()
 
         if updates is not None:
             config.update(ConfigDict(updates).copy_and_resolve_references())
@@ -41,7 +43,7 @@ class DatasetFactory(object):
             return JsonDataset(config.json_dataset, tokenizer, text_processor,
                                **kwargs)
         elif config.type == 'huggingface_v2':
-            return HuggingfaceDatasetV2(config.huggingface_dataset,
+            return HuggingfaceDatasetV2(config.huggingface_dataset_v2,
                                            tokenizer, text_processor, **kwargs)
         # TODO: Add seqio type here
         elif config.type == 'seqio':
@@ -399,7 +401,7 @@ class JsonDataset(object):
 
 
 # this dataset will probably be used on V2
-class HuggingFaceDatasetV2(HuggingfaceDataset):
+class HuggingfaceDatasetV2(HuggingfaceDataset):
     """ Huggingface dataset, where the dataset is loaded using the huggingface
         datasets.load_dataset() function.
 
@@ -415,6 +417,11 @@ class HuggingFaceDatasetV2(HuggingfaceDataset):
     - load dataset
     - (maybe) shuffle dataset
     - (maybe) clean dataset
+
+    About config clean text:
+    - first, it applies ftfy to individual documents
+    - quality filters are applied to individual documents, filtering out bad
+    documents
     """
 
     @staticmethod
@@ -433,6 +440,7 @@ class HuggingFaceDatasetV2(HuggingfaceDataset):
         config.seed = 12345
         config.shuffle_buffer_size = 10_000
         config.clean_text = True
+        config.min_unique_tokens_per_document = 0
 
         if updates is not None:
             config.update(ConfigDict(updates).copy_and_resolve_references())
@@ -449,27 +457,78 @@ class HuggingFaceDatasetV2(HuggingfaceDataset):
                                      name,
                                      split=split,
                                      streaming=self.config.streaming)
+        logging.info('Laoding HuggingfaceDatasetV2 with config %s', self.config)
         # shuffle and slicing are different for map and iterable datasets
         if self.config.streaming:
+            logging.info('Loading streaming dataset')
             if self.config.shuffle:
+                logging.info('Shuffling dataset')
                 self._dataset = self._dataset.shuffle(
                     seed=self.config.seed,
                     buffer_size=self.config.shuffle_buffer_size)
             if self.config.max_examples is not None:
+                logging.info('Limiting dataset to %d examples', self.config.max_examples)
                 self._dataset = self._dataset.take(self.config.max_examples)
         else:
+            logging.info('Loading map dataset')
             if self.config.shuffle:
+                logging.info('Shuffling dataset')
                 self._dataset = self._dataset.shuffle(seed=self.config.seed)
             if self.config.max_examples is not None:
+                logging.info('Limiting dataset to %d examples', self.config.max_examples)
                 self._dataset = self._dataset.select(
                     range(self.config.max_examples))
 
         # clean and filter are the same
         if self.config.clean_text:
+            logging.info('Cleaning and filtering dataset')
             self.dataset = self._dataset.map(self.clean_document)
             self._dataset = self._dataset.filter(
                 lambda ex: not ex['any_filter'])
             self._dataset = self._dataset.remove_columns(['any_filter'])
+    
+    def __iter__(self):
+        chunk_size = self.config.batch_size * self.config.seq_length
+        total_tokens = 0
+        index = 0
+        while True:
+            token_buffer = []
+            loss_mask_buffer = []
+            for example in self._dataset:
+                tokens, loss_masks = self.text_processor(example)
+                if self.config.min_unique_tokens_per_document > 0:
+                    if len(set(tokens)) < self.config.min_unique_tokens_per_document:
+                        continue
+                # index is update only for valid examples
+                index += 1
+                token_buffer.extend(tokens)
+                loss_mask_buffer.extend(loss_masks)
+                while len(token_buffer) > chunk_size + 1:
+                    total_tokens += chunk_size
+                    metrics = {
+                        'dataset_example_index': index,
+                        'dataset_total_tokens': total_tokens,
+                    }
+                    batch = {
+                        'input_tokens':
+                        np.array(token_buffer[:chunk_size],
+                                 dtype=np.int32).reshape(
+                                     self.config.batch_size, -1),
+                        'target_tokens':
+                        np.array(token_buffer[1:chunk_size + 1],
+                                 dtype=np.int32).reshape(
+                                     self.config.batch_size, -1),
+                        'loss_masks':
+                        np.array(loss_mask_buffer[1:chunk_size + 1],
+                                 dtype=np.float32).reshape(
+                                     self.config.batch_size, -1),
+                    }
+                    if self.config.always_start_with_bos:
+                        batch['input_tokens'][:,
+                                              0] = self.tokenizer.bos_token_id
+                    yield batch, metrics
+                    token_buffer = token_buffer[chunk_size:]
+                    loss_mask_buffer = loss_mask_buffer[chunk_size:]
 
     def clean_document(self, ex):
         """Clean and filter a single document."""
