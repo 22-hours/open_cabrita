@@ -28,25 +28,8 @@ mkdir -pv logs
 START_TS=$(date +"%Y%m%d%H%M%S")
 LOG_FILE=./logs/`basename ${0}`_${START_TS}.log
 
-# Salvando pra depois
-# --optimizer.adamw_optimizer.lr_warmup_steps=2000 \
-# --optimizer.adamw_optimizer.lr_decay_steps=250000 \
-# --train_dataset.huggingface_dataset.seq_length=2048 \
-# --train_dataset.huggingface_dataset.batch_size=2048 \
-
-# --eval_steps=100 \
-
-# --eval_dataset.type='huggingface' \
-# --eval_dataset.text_processor.fields='text' \
-# --eval_dataset.huggingface_dataset.path='allenai/mc4' \
-# --eval_dataset.huggingface_dataset.name='pt' \
-# --eval_dataset.huggingface_dataset.split='validation' \
-# --eval_dataset.huggingface_dataset.streaming=False \
-# --eval_dataset.huggingface_dataset.seq_length=2048 \
-# --eval_dataset.huggingface_dataset.batch_size=8 \
-# --eval_dataset.huggingface_dataset.always_start_with_bos=True \
-
-# --mesh_dim='1,-1,1' \
+# initially we will not use grad accum
+# --optimizer.adamw_optimizer.accumulate_gradient_steps=128 \
 echo -e "*****pip requirements*****\n$(pip freeze)" > $LOG_FILE
 (python -m EasyLM.models.llama.llama_train_v2 \
     --mesh_dim='1,-1,2' \
