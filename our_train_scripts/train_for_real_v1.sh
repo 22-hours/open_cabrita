@@ -16,13 +16,13 @@ echo -e "*****pip requirements*****\n$(pip freeze)" > $LOG_FILE
 (python -m EasyLM.models.llama.llama_train_v2 \
     --mesh_dim='1,-1,2' \
     --dtype='fp32' \
-    --total_steps=1100 \
+    --total_steps=250000 \
     --save_model_freq=0 \
-    --save_milestone_freq=500 \
+    --save_milestone_freq=10000 \
     --load_llama_config='3b' \
     --update_llama_config='' \
     --load_dataset_state='' \
-    --eval_freq=500 \
+    --eval_freq=10000 \
     --eval_batches=50 \
     --load_checkpoint="params::${HOME}/original_easylm_weights/open_llama_3b_easylm/open_llama_3b_easylm" \
     --tokenizer.vocab_file="${HOME}/original_easylm_weights/open_llama_3b_easylm/tokenizer.model" \
