@@ -1,27 +1,9 @@
 #! /bin/bash
 
 set -u
+# Copied from https://github.com/young-geng/EasyLM/blob/main/examples/pretrain_llama_7b.sh
 
-# This is the example script to pretrain a 7B LLaMA model on a TPU v4 pod. These
-# hyperparameters are the ones we used to train the OpenLLaMA 7B model on
-# the RedPajama dataset. To use this on TPU pod, you need to run this
-# script on every hosts in a TPU pod.
-
-
-# Vamos modificar para rodar com nossos dados em PT
-# Esse script usa um arquivo json no google cloud, já é melhor que deixar local
-# OBS.: ao invés de colocar no train, coloquei no eval
-
-# Put your WANDB API key here to enable logging to wandb.
-# export WANDB_API_KEY='<your wandb api key here>'
-
-# TPU specific flags to improve training throughput
-# export LIBTPU_INIT_ARGS='--xla_jf_spmd_threshold_for_windowed_einsum_mib=0 --xla_tpu_spmd_threshold_for_allgather_cse=10000 --xla_tpu_spmd_rewrite_einsum_with_reshape=true --xla_enable_async_all_gather=true --jax_enable_async_collective_offload=true --xla_tpu_enable_latency_hiding_scheduler=true TPU_MEGACORE=MEGACORE_DENSE'
-# Marcos mudou
-# ERROR: Accessing retired flag 'jax_enable_async_collective_offload' 
-# export LIBTPU_INIT_ARGS='--xla_jf_spmd_threshold_for_windowed_einsum_mib=0 --xla_tpu_spmd_threshold_for_allgather_cse=10000 --xla_tpu_spmd_rewrite_einsum_with_reshape=true --xla_enable_async_all_gather=true --xla_tpu_enable_latency_hiding_scheduler=true TPU_MEGACORE=MEGACORE_DENSE'
-
-export EXP_NAME=mc4-pt-3b-debug-3-hf-dataset-v2-clean
+export EXP_NAME=mc4-pt-3b-clean_text-1
 export MODEL_DIR=${GCS_BUCKET:-gs://your-bucket-name}/open_llama_models/${EXP_NAME}
 
 mkdir -pv logs
