@@ -21,7 +21,7 @@ set -u
 # ERROR: Accessing retired flag 'jax_enable_async_collective_offload' 
 # export LIBTPU_INIT_ARGS='--xla_jf_spmd_threshold_for_windowed_einsum_mib=0 --xla_tpu_spmd_threshold_for_allgather_cse=10000 --xla_tpu_spmd_rewrite_einsum_with_reshape=true --xla_enable_async_all_gather=true --xla_tpu_enable_latency_hiding_scheduler=true TPU_MEGACORE=MEGACORE_DENSE'
 
-export EXP_NAME=mc4-pt-3b-debug-7-hf-dataset-v2-clean-grad-accum
+export EXP_NAME=mc4-pt-clean_text-3b-1
 export MODEL_DIR=${GCS_BUCKET:-gs://your-bucket-name}/open_llama_models/${EXP_NAME}
 
 mkdir -pv logs
