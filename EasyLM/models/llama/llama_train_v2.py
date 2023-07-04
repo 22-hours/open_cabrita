@@ -304,7 +304,8 @@ def main(argv):
                     step + 1) % FLAGS.save_model_freq == 0 or (
                         step + 1) == FLAGS.total_steps:
                 save_checkpoint(train_state)
-
+        # always save on last step
+        save_checkpoint(train_state, milestone=True)
 
 if __name__ == "__main__":
     mlxu.run(main)
