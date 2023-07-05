@@ -302,7 +302,7 @@ def main(argv):
                 save_checkpoint(train_state, milestone=True)
             elif FLAGS.save_model_freq > 0 and (
                     step + 1) % FLAGS.save_model_freq == 0 or (
-                        step + 1) == FLAGS.total_steps:
+                        step + 1) == FLAGS.total_steps or step==0:
                 save_checkpoint(train_state)
         # always save on last step
         save_checkpoint(train_state, milestone=True)
