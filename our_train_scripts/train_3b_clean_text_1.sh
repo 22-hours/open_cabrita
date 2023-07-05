@@ -33,7 +33,7 @@ echo -e "*****pip requirements*****\n$(pip freeze)" > $LOG_FILE
 (python -m EasyLM.models.llama.llama_train_v2 \
     --mesh_dim='1,-1,2' \
     --dtype='fp32' \
-    --total_steps=1100 \
+    --total_steps=250000 \
     --save_model_freq=0 \
     --save_milestone_freq=5000 \
     --load_llama_config='3b' \
