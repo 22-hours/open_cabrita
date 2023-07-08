@@ -54,7 +54,9 @@ FLAGS, FLAGS_DEF = mlxu.define_flags_with_default(
     # NOVOS
     eval_freq=1000,
     eval_batches=10000,
-    skip_train_batches=0,
+    # Removed: will be inferred from train_state.step when loading
+    # from checkpoint using 'trainstate' mode
+    # skip_train_batches=0,
 )
 
 
@@ -77,12 +79,6 @@ def main(argv):
     if FLAGS.load_dataset_state != '':
         dataset.load_state_dict(mlxu.load_pickle(FLAGS.load_dataset_state))
     logging.info('Loading train dataset... Done!')
-    if FLAGS.skip_train_batches > 0:
-        logging.info('Skipping %s train batches...', FLAGS.skip_train_batches)
-        for _ in range(FLAGS.skip_train_batches):
-            next(dataset)
-        logging.info('Skipping %s train batches... Done!',
-                     FLAGS.skip_train_batches)
 
     # if FLAGS.eval_steps > 0:
     # BUG: pra pegar o dataset de validação, ele precisa
@@ -250,14 +246,22 @@ def main(argv):
 
         if train_state is None and restored_params is None:
             # Initialize from scratch
+            logging.info('Initializing train state from scratch')
             train_state = sharded_init_fn(next_rng())
         elif train_state is None and restored_params is not None:
+            logging.info('Initializing train state from restored params')
             # Restore from params but initialize train_state
             train_state = sharded_create_trainstate_from_params(
                 restored_params)
             del restored_params
 
         start_step = int(jax.device_get(train_state.step))
+        logging.info('Starting training from step %d', start_step)
+        if start_step > 0:
+            logging.info('Skipping %s train batches...', start_step)
+            for _ in range(start_step):
+                next(dataset)
+            logging.info('Skipping %s train batches... Done!', start_step)
 
         if FLAGS.save_model_freq > 0:
             save_checkpoint(train_state)
