@@ -41,7 +41,7 @@ echo -e "*****pip requirements*****\n$(pip freeze)" > $LOG_FILE
     --load_dataset_state='' \
     --eval_freq=5000 \
     --eval_batches=100 \
-    --load_checkpoint="trainstate::gs://cabrita-europe-1/open_llama_models/mc4-pt-clean_text-3b-1/a815395f72e74a6bb84c99863630a671/streaming_train_state" \
+    --load_checkpoint="trainstate::gs://cabrita-europe-1/open_llama_models/mc4-pt-clean_text-3b-1/a815395f72e74a6bb84c99863630a671/streaming_train_state_30000" \
     --tokenizer.vocab_file="${HOME}/original_easylm_weights/open_llama_3b_easylm/tokenizer.model" \
     --optimizer.type='adamw' \
     --optimizer.accumulate_gradient_steps=1 \
