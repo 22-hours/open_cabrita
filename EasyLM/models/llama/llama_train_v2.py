@@ -272,7 +272,7 @@ def main(argv):
             train_iterator = itertools.islice(train_iterator, start_step, None)
             logging.info('Skipping %s train batches... Done!', start_step)
 
-
+        eval_metrics = {}
         for step, (batch, dataset_metrics) in train_iterator:
             # train metrics are always logged
             train_state, sharded_rng, train_metrics = sharded_train_step(
@@ -282,7 +282,7 @@ def main(argv):
 
             # eval metrics are logged every eval_every_steps
             if (step % FLAGS.eval_freq == 0
-                    or step == 0) and FLAGS.eval_batches > 0:
+                    or step == start_step) and FLAGS.eval_batches > 0:
                 # if step % FLAGS.log_freq == 0:
                 eval_metric_list = []
                 logging.info('Running eval')
