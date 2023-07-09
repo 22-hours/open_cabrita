@@ -27,6 +27,7 @@ from EasyLM.jax_utils import (JaxRNG, average_metrics,
 from EasyLM.models.llama.llama_model import (FlaxLLaMAForCausalLMModule,
                                              LLaMAConfig)
 from EasyLM.optimizers import OptimizerFactory
+import more_itertools
 
 FLAGS, FLAGS_DEF = mlxu.define_flags_with_default(
     seed=42,
@@ -76,9 +77,9 @@ def main(argv):
     tokenizer = LLaMAConfig.get_tokenizer(FLAGS.tokenizer)
     logging.info('Loading train dataset...')
     dataset = DatasetFactory.load_dataset(FLAGS.train_dataset, tokenizer)
-    if FLAGS.load_dataset_state != '':
-        dataset.load_state_dict(mlxu.load_pickle(FLAGS.load_dataset_state))
-    logging.info('Loading train dataset... Done!')
+    # if FLAGS.load_dataset_state != '':
+    #     dataset.load_state_dict(mlxu.load_pickle(FLAGS.load_dataset_state))
+    # logging.info('Loading train dataset... Done!')
 
     # if FLAGS.eval_steps > 0:
     # BUG: pra pegar o dataset de validação, ele precisa
@@ -257,20 +258,22 @@ def main(argv):
 
         start_step = int(jax.device_get(train_state.step))
         logging.info('Starting training from step %d', start_step)
-        if start_step > 0:
-            logging.info('Skipping %s train batches...', start_step)
-            for _ in range(start_step):
-                next(dataset)
-            logging.info('Skipping %s train batches... Done!', start_step)
-
+        
         if FLAGS.save_model_freq > 0:
             save_checkpoint(train_state)
 
         sharded_rng = next_rng()
 
         step_counter = trange(start_step, FLAGS.total_steps, ncols=0)
+        train_iterator = zip(step_counter, dataset)
+        # skip already trained steps
+        if start_step > 0:
+            logging.info('Skipping %s train batches...', start_step)
+            train_iterator = itertools.islice(train_iterator, start_step, None)
+            logging.info('Skipping %s train batches... Done!', start_step)
 
-        for step, (batch, dataset_metrics) in zip(step_counter, dataset):
+
+        for step, (batch, dataset_metrics) in train_iterator:
             # train metrics are always logged
             train_state, sharded_rng, train_metrics = sharded_train_step(
                 train_state, sharded_rng, batch)
@@ -297,7 +300,7 @@ def main(argv):
             log_metrics = {"step": step}
             log_metrics.update(train_metrics)
             log_metrics.update(dataset_metrics)
-            log_metrics.update(eval_metrics)
+            log_metrics.update(eval_metrics or {})
             log_metrics = jax.device_get(log_metrics)
             logger.log(log_metrics, step=step)
 
