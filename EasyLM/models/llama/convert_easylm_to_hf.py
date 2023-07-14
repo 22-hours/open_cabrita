@@ -45,6 +45,13 @@ FLAGS, FLAGS_DEF = mlxu.define_flags_with_default(
 
 
 LLAMA_STANDARD_CONFIGS = {
+    '3b-ptbr': {
+        'dim': 3200,
+        'intermediate_size': 8640,
+        'n_layers': 26,
+        'n_heads': 32,
+        'norm_eps': 1e-6,
+    },
     '3b': {
         'dim': 3200,
         'intermediate_size': 8640,
