@@ -264,7 +264,7 @@ def main(argv):
 
         sharded_rng = next_rng()
 
-        step_counter = trange(start_step, FLAGS.total_steps, ncols=0)
+        step_counter = trange(0, FLAGS.total_steps, ncols=0)
         train_iterator = zip(step_counter, dataset)
         # skip already trained steps
         if start_step > 0:
