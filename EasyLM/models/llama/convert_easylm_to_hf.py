@@ -40,12 +40,12 @@ FLAGS, FLAGS_DEF = mlxu.define_flags_with_default(
     tokenizer_path='',
     model_size='13b',
     output_dir='',
-    dtype='fp16',
 )
 
 
 LLAMA_STANDARD_CONFIGS = {
     '3b-ptbr': {
+        'vocab_size': 52000,
         'dim': 3200,
         'intermediate_size': 8640,
         'n_layers': 26,
@@ -53,6 +53,7 @@ LLAMA_STANDARD_CONFIGS = {
         'norm_eps': 1e-6,
     },
     '3b': {
+        'vocab_size': 32000,
         'dim': 3200,
         'intermediate_size': 8640,
         'n_layers': 26,
@@ -60,6 +61,7 @@ LLAMA_STANDARD_CONFIGS = {
         'norm_eps': 1e-6,
     },
     '7b': {
+        'vocab_size': 32000,
         'dim': 4096,
         'intermediate_size': 11008,
         'n_layers': 32,
@@ -67,6 +69,7 @@ LLAMA_STANDARD_CONFIGS = {
         'norm_eps': 1e-6,
     },
     '13b': {
+        'vocab_size': 32000,
         'dim': 5120,
         'intermediate_size': 13824,
         'n_layers': 40,
@@ -74,6 +77,7 @@ LLAMA_STANDARD_CONFIGS = {
         'norm_eps': 1e-6,
     },
     '30b': {
+        'vocab_size': 32000,
         'dim': 6656,
         'intermediate_size': 17920,
         'n_layers': 60,
@@ -81,6 +85,7 @@ LLAMA_STANDARD_CONFIGS = {
         'norm_eps': 1e-6,
     },
     '65b': {
+        'vocab_size': 32000,
         'dim': 8192,
         'intermediate_size': 22016,
         'n_layers': 80,
@@ -107,8 +112,9 @@ def load_and_convert_checkpoint(path):
     for key, tensor in flax_params.items():
         if match_keywords(key, ["kernel"], ["norm", 'ln_f']):
             tensor = tensor.T
-        tensor = float_tensor_to_dtype(tensor, FLAGS.dtype)
-        torch_params[key] = torch.from_numpy(tensor)
+        torch_params[key] = torch.tensor(
+            float_tensor_to_dtype(tensor, 'fp32'), dtype=torch.float16
+        )
     return torch_params
 
 
@@ -188,6 +194,7 @@ def write_model(loaded, model_path, model_size):
     write_json(index_dict, os.path.join(tmp_model_path, "pytorch_model.bin.index.json"))
 
     config = LlamaConfig(
+        vocab_size=params["vocab_size"],
         hidden_size=dim,
         intermediate_size=params["intermediate_size"],
         num_attention_heads=params["n_heads"],
