@@ -21,7 +21,7 @@ set -u
 # ERROR: Accessing retired flag 'jax_enable_async_collective_offload' 
 # export LIBTPU_INIT_ARGS='--xla_jf_spmd_threshold_for_windowed_einsum_mib=0 --xla_tpu_spmd_threshold_for_allgather_cse=10000 --xla_tpu_spmd_rewrite_einsum_with_reshape=true --xla_enable_async_all_gather=true --xla_tpu_enable_latency_hiding_scheduler=true TPU_MEGACORE=MEGACORE_DENSE'
 
-export EXP_NAME=mc4-pt-clean_text-3b-tokenizer-1
+export EXP_NAME=mc4-pt-clean_text-3b-1-acc128
 export MODEL_DIR=gs://cabrita-europe-1/open_llama_models/${EXP_NAME}
 
 mkdir -pv logs
@@ -36,13 +36,13 @@ echo -e "*****pip requirements*****\n$(pip freeze)" > $LOG_FILE
     --total_steps=250000 \
     --save_model_freq=0 \
     --save_milestone_freq=5000 \
-    --load_llama_config='3b-ptbr' \
+    --load_llama_config='3b' \
     --update_llama_config='' \
-    --load_dataset_state="${MODEL_DIR}/6730ad1d3e57452fb88eafb12aff8135/dataset_175000.pkl" \
+    --load_dataset_state="${MODEL_DIR}/218724e9b95041c1b273570463fa29a9/dataset_125000.pkl" \
     --eval_freq=5000 \
     --eval_batches=100 \
-    --load_checkpoint="trainstate::${MODEL_DIR}/6730ad1d3e57452fb88eafb12aff8135/streaming_train_state_175000" \
-    --tokenizer.vocab_file="${HOME}/open_llama3b/tokenizer.model" \
+    --load_checkpoint="trainstate::${MODEL_DIR}/218724e9b95041c1b273570463fa29a9/streaming_train_state_125000"  \
+    --tokenizer.vocab_file="${HOME}/open_llama_easylm/tokenizer.model" \
     --optimizer.type='adamw' \
     --optimizer.accumulate_gradient_steps=128 \
     --optimizer.adamw_optimizer.weight_decay=0.1 \
