@@ -3,6 +3,7 @@ from shutil import copyfile
 from typing import Any, Dict, List, Optional, Tuple, Union
 import json
 import tempfile
+from functools import partial
 
 import numpy as np
 import jax
@@ -15,6 +16,7 @@ from flax.linen import combine_masks, make_causal_mask
 from flax.linen.attention import dot_product_attention_weights
 from flax.traverse_util import flatten_dict, unflatten_dict
 from flax.linen import partitioning as nn_partitioning
+import einops
 
 import sentencepiece as spm
 from transformers.configuration_utils import PretrainedConfig
@@ -28,12 +30,25 @@ from ml_collections import ConfigDict
 from ml_collections.config_dict import config_dict
 from mlxu import function_args_to_config, load_pickle, open_file
 
+from EasyLM.memory_efficient_attention import dot_product_attention_multihead as efficient_dot_product_attention
 from EasyLM.jax_utils import (
     with_sharding_constraint, get_jax_mesh, get_gradient_checkpoint_policy
 )
 
 
 LLAMA_STANDARD_CONFIGS = {
+    '1b': {
+        'vocab_size': 32000,
+        'hidden_size': 2048,
+        'intermediate_size': 5504,
+        'num_hidden_layers': 22,
+        'num_attention_heads': 16,
+        'max_sequence_length': 2048,
+        'initializer_range': 0.02,
+        'rms_norm_eps': 1e-6,
+        'use_cache': True,
+        'tie_word_embeddings': False,
+    },
     '3b': {
         'vocab_size': 32000,
         'hidden_size': 3200,
@@ -76,7 +91,7 @@ LLAMA_STANDARD_CONFIGS = {
         'intermediate_size': 11008,
         'num_hidden_layers': 32,
         'num_attention_heads': 32,
-        'max_sequence_length': 2048,
+        'max_sequence_length': 4096,
         'initializer_range': 0.02,
         'rms_norm_eps': 1e-6,
         'use_cache': True,
@@ -195,7 +210,14 @@ class LLaMAConfig(PretrainedConfig):
         embd_pdrop=0.0,
         attn_pdrop=0.0,
         tie_word_embeddings=False,
-        gradient_checkpointing='nothing_saveable',
+        remat_block='nothing_saveable',
+        remat_attention='',
+        remat_mlp='',
+        scan_attention=False,
+        scan_mlp=False,
+        scan_query_chunk_size=1024,
+        scan_key_chunk_size=2048,
+        scan_mlp_chunk_size=1024,
         fcm_min_ratio=0.0,
         fcm_max_ratio=0.0,
         **kwargs,
@@ -212,7 +234,14 @@ class LLaMAConfig(PretrainedConfig):
         self.resid_pdrop = resid_pdrop
         self.embd_pdrop = embd_pdrop
         self.attn_pdrop = attn_pdrop
-        self.gradient_checkpointing = gradient_checkpointing
+        self.remat_block = remat_block
+        self.remat_attention = remat_attention
+        self.remat_mlp = remat_mlp
+        self.scan_attention = scan_attention
+        self.scan_mlp = scan_mlp
+        self.scan_query_chunk_size = scan_query_chunk_size
+        self.scan_key_chunk_size = scan_key_chunk_size
+        self.scan_mlp_chunk_size = scan_mlp_chunk_size
         self.fcm_min_ratio = fcm_min_ratio
         self.fcm_max_ratio = fcm_max_ratio
         super().__init__(
@@ -521,19 +550,42 @@ class FlaxLLaMAAttention(nn.Module):
         )
 
         # usual dot product attention
-        attn_weights = dot_product_attention_weights(
-            xq,
-            xk,
-            bias=attention_bias,
-            dropout_rng=dropout_rng,
-            dropout_rate=self.config.attn_pdrop,
-            deterministic=deterministic,
-            dtype=jnp.promote_types(self.dtype, jnp.float32),
-            precision=self.precision,
-        )
-        attn_weights = with_sharding_constraint(attn_weights, PS(("dp", "fsdp"), "mp", None, None))
+        if self.config.scan_attention:
+            attn_weights = None
+            attention_mask = einops.rearrange(
+                combine_masks(attention_mask, fcm_mask),
+                '... s q k -> ... s 1 q k'
+            )
+            attn_output = efficient_dot_product_attention(
+                xq,
+                xk,
+                xv,
+                bias=attention_mask,
+                dropout_rng=dropout_rng,
+                dropout_rate=self.config.attn_pdrop,
+                enable_dropout=not deterministic and self.config.attn_pdrop > 0.0,
+                rescale_logits=True,
+                float32_logits=True,
+                causal_mask=True,
+                dtype=self.dtype,
+                precision=self.precision,
+                query_chunk_size=self.config.scan_query_chunk_size,
+                key_chunk_size=self.config.scan_key_chunk_size,
+            )
+        else:
+            attn_weights = dot_product_attention_weights(
+                xq,
+                xk,
+                bias=attention_bias,
+                dropout_rng=dropout_rng,
+                dropout_rate=self.config.attn_pdrop,
+                deterministic=deterministic,
+                dtype=jnp.promote_types(self.dtype, jnp.float32),
+                precision=self.precision,
+            )
+            attn_weights = with_sharding_constraint(attn_weights, PS(("dp", "fsdp"), "mp", None, None))
+            attn_output = jnp.einsum("...hqk,...khd->...qhd", attn_weights, xv, precision=self.precision)
 
-        attn_output = jnp.einsum("...hqk,...khd->...qhd", attn_weights, xv, precision=self.precision)
         attn_output = self._merge_heads(attn_output)
         attn_output = self.wo(attn_output)
         attn_output = self.resid_dropout(attn_output, deterministic=deterministic)
@@ -589,13 +641,26 @@ class FlaxLLaMABlock(nn.Module):
     precision: Optional[Union[jax.lax.Precision, str]]=None
 
     def setup(self) -> None:
-        self.attention = FlaxLLaMAAttention(
+        attention_module = FlaxLLaMAAttention
+        mlp_module = FlaxLLaMAMLP
+        if self.config.remat_attention != '':
+            attention_module = remat(
+                FlaxLLaMAAttention, static_argnums=(3, 4, 5),
+                policy=get_gradient_checkpoint_policy(self.config.remat_attention)
+            )
+        if self.config.remat_mlp != '':
+            mlp_module = remat(
+                FlaxLLaMAMLP, static_argnums=(1,),
+                policy=get_gradient_checkpoint_policy(self.config.remat_mlp)
+            )
+
+        self.attention = attention_module(
             self.config,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
             precision=self.precision,
         )
-        self.feed_forward = FlaxLLaMAMLP(
+        self.feed_forward = mlp_module(
             self.config,
             dtype=self.dtype,
             param_dtype=self.param_dtype,
@@ -626,20 +691,47 @@ class FlaxLLaMABlock(nn.Module):
     ):
         attn_outputs = self.attention(
             self.attention_norm(hidden_states),
-            attention_mask=attention_mask,
-            position_ids=position_ids,
-            deterministic=deterministic,
-            init_cache=init_cache,
-            output_attentions=output_attentions,
-            fcm_mask=fcm_mask,
+            attention_mask,
+            position_ids,
+            deterministic,
+            init_cache,
+            output_attentions,
+            fcm_mask,
         )
         attn_output = attn_outputs[0]
         hidden_states = hidden_states + attn_output
 
-        feed_forward_hidden_states = self.feed_forward(
-            self.ffn_norm(hidden_states),
-            deterministic=deterministic,
-        )
+        feed_forward_input = self.ffn_norm(hidden_states)
+
+        if self.config.scan_mlp:
+            feed_forward_input = einops.rearrange(
+                feed_forward_input,
+                '... (b s) d -> ... b s d',
+                b=self.config.scan_mlp_chunk_size
+            )
+
+            def mlp_forward(mlp, carry, x):
+                return None, mlp(x, deterministic)
+
+            scan_axis = feed_forward_input.ndim - 3
+
+            _, feed_forward_hidden_states = nn.scan(
+                mlp_forward,
+                variable_broadcast="params",
+                split_rngs={"params": False, "dropout": True},
+                in_axes=scan_axis,
+                out_axes=scan_axis,
+            )(self.feed_forward, None, feed_forward_input)
+            feed_forward_hidden_states = einops.rearrange(
+                feed_forward_hidden_states,
+                '... b s d -> ... (b s) d'
+            )
+        else:
+            feed_forward_hidden_states = self.feed_forward(
+                feed_forward_input,
+                deterministic,
+            )
+
         hidden_states = hidden_states + feed_forward_hidden_states
 
         return (hidden_states,) + attn_outputs[1:]
@@ -800,14 +892,19 @@ class FlaxLLaMABlockCollection(nn.Module):
 
     def setup(self):
         block = FlaxLLaMABlock
-        if self.config.gradient_checkpointing != '':
-            FlaxLLaMACheckpointBlock = remat(
-                block, static_argnums=(3, 4, 5),
-                policy=get_gradient_checkpoint_policy(self.config.gradient_checkpointing)
+        if self.config.remat_block != '':
+            block = remat(
+                FlaxLLaMABlock, static_argnums=(3, 4, 5),
+                policy=get_gradient_checkpoint_policy(self.config.remat_block)
             )
-            block = FlaxLLaMACheckpointBlock
         self.blocks = [
-            block(self.config, name=str(i), dtype=self.dtype, param_dtype=self.param_dtype, precision=self.precision) for i in range(self.config.num_hidden_layers)
+            block(
+                self.config,
+                name=str(i),
+                dtype=self.dtype,
+                param_dtype=self.param_dtype,
+                precision=self.precision
+            ) for i in range(self.config.num_hidden_layers)
         ]
 
     def __call__(
@@ -834,7 +931,7 @@ class FlaxLLaMABlockCollection(nn.Module):
             )
             fcm_mask = jax.random.uniform(
                 self.make_rng('fcm'),
-                shape=(batch_size, 1, seq_length, seq_length)
+                shape=(batch_size, 1, 1, seq_length)
             ) > fcm_ratio
             fcm_mask = fcm_mask.at[:, :, :, 0].set(True)
             fcm_mask = fcm_mask.astype('bool')
