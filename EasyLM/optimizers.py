@@ -50,8 +50,11 @@ class OptimizerFactory(object):
             raise ValueError(f'Unknown optimizer type: {config.type}')
 
         if config.accumulate_gradient_steps > 1:
-            optimizer = optax.MultiSteps(
-                optimizer, config.accumulate_gradient_steps
+            #optimizer = optax.MultiSteps(
+            #    optimizer, config.accumulate_gradient_steps
+            #)
+            optimizer = optax.chain(
+                optax.apply_every(config.accumulate_gradient_steps), optimizer
             )
 
         return optimizer, optimizer_info
@@ -135,7 +138,7 @@ class AdamWOptimizerFactory(object):
         config.weight_decay = 1e-4
         config.bf16_momentum = False
         config.multiply_by_parameter_scale = False
-
+        
         if updates is not None:
             config.update(ConfigDict(updates).copy_and_resolve_references())
         return config
