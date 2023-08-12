@@ -54,7 +54,9 @@ class OptimizerFactory(object):
             #    optimizer, config.accumulate_gradient_steps
             #)
             optimizer = optax.chain(
-                optax.apply_every(config.accumulate_gradient_steps), optimizer
+                optimizer,
+                optax.apply_every(config.accumulate_gradient_steps), 
+                optax.scale(1.0/config.accumulate_gradient_steps)
             )
 
         return optimizer, optimizer_info
