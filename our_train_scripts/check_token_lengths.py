@@ -166,9 +166,11 @@ ds = ds.map(clean_document, remove_columns=ds.column_names, num_proc=mp.cpu_coun
 # get tokenized lengths
 tokenizer = get_llama_tokenizer(TOKENIZERS_PATHS['llama_default'])
 ds = ds.map(lambda x: add_count_tokens(x['text'], tokenizer), num_proc=mp.cpu_count())
-df.with_column('lt_200_unique_tokens', pl.col()'n_unique_tokens') < 200)
 
 df = pl.from_arrow(ds.data.table)
+df = df.with_columns(pl.col('n_tokens').lt(200).alias('lt_200_unique_tokens_filter'))
+df = df.with_columns((pl.col('any_filter') | pl.col('lt_200_unique_tokens_filter')).alias('any_filter'))
+
 # token counts aggregated by filter or not
 df_token_group = df.groupby('any_filter').agg(
     pl.col('n_tokens').sum().alias('sum'),
@@ -188,4 +190,4 @@ suma_pct = suma.div(df2['count'].item()).mul(100).round(2).rename(columns={'coun
 # lateral concatenation
 suma_final = pd.concat([suma, suma_pct], axis=1)
 suma_final['1024_shards'] = suma_final['count'] * (1024 / N_SHARDS)
-print(pl.from_pandas(suma_final).write_csv())
+print(pl.from_pandas(suma_final.reset_index()).write_csv())
