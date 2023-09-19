@@ -50,14 +50,14 @@ class OptimizerFactory(object):
             raise ValueError(f'Unknown optimizer type: {config.type}')
 
         if config.accumulate_gradient_steps > 1:
-            #optimizer = optax.MultiSteps(
-            #    optimizer, config.accumulate_gradient_steps
-            #)
-            optimizer = optax.chain(
-                optimizer,
-                optax.apply_every(config.accumulate_gradient_steps), 
-                optax.scale(1.0/config.accumulate_gradient_steps)
+            optimizer = optax.MultiSteps(
+               optimizer, config.accumulate_gradient_steps
             )
+            # optimizer = optax.chain(
+            #     optimizer,
+            #     optax.apply_every(config.accumulate_gradient_steps), 
+            #     optax.scale(1.0/config.accumulate_gradient_steps)
+            # )
 
         return optimizer, optimizer_info
 
