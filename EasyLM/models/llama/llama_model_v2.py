@@ -30,7 +30,7 @@ from ml_collections import ConfigDict
 from ml_collections.config_dict import config_dict
 from mlxu import function_args_to_config, load_pickle, open_file
 
-from EasyLM.memory_efficient_attention import dot_product_attention_multihead as efficient_dot_product_attention
+from EasyLM.bpt import blockwise_ffn, blockwise_attn
 from EasyLM.jax_utils import (
     with_sharding_constraint, get_jax_mesh, get_gradient_checkpoint_policy
 )
@@ -210,13 +210,13 @@ class LLaMAConfig(PretrainedConfig):
         embd_pdrop=0.0,
         attn_pdrop=0.0,
         tie_word_embeddings=False,
-        remat_block='checkpoint_dots_with_no_batch_dims',
-        remat_attention='checkpoint_dots_with_no_batch_dims',
-        remat_mlp='checkpoint_dots_with_no_batch_dims',
+        remat_block='',
+        remat_attention='',
+        remat_mlp='',
         scan_attention=False,
         scan_mlp=False,
         scan_query_chunk_size=1024,
-        scan_key_chunk_size=2048,
+        scan_key_chunk_size=1024,
         scan_mlp_chunk_size=1024,
         fcm_min_ratio=0.0,
         fcm_max_ratio=0.0,
@@ -516,63 +516,69 @@ class FlaxLLaMAAttention(nn.Module):
 
         xq, xk = apply_rotary_emb(xq, xk, freqs_cis=freqs_cis, dtype=self.dtype)
 
-        query_length, key_length = xq.shape[1], xk.shape[1]
-
-        if self.has_variable("cache", "cached_key"):
-            mask_shift = self.variables["cache"]["cache_index"]
-            max_decoder_length = self.variables["cache"]["cached_key"].shape[1]
-            causal_mask = lax.dynamic_slice(
-                self.causal_mask, (0, 0, mask_shift, 0), (1, 1, query_length, max_decoder_length)
-            )
-        else:
-            causal_mask = self.causal_mask[:, :, :query_length, :key_length]
-
-        batch_size = hidden_states.shape[0]
-        causal_mask = jnp.broadcast_to(causal_mask, (batch_size,) + causal_mask.shape[1:])
-
-        attention_mask = jnp.broadcast_to(jnp.expand_dims(attention_mask, axis=(-3, -2)), causal_mask.shape)
-        attention_mask = combine_masks(attention_mask, causal_mask, fcm_mask)
-
         dropout_rng = None
         if not deterministic and self.config.attn_pdrop > 0.0:
             dropout_rng = self.make_rng("dropout")
 
-        # During fast autoregressive decoding, we feed one position at a time,
-        # and cache the keys and values step by step.
-        if self.has_variable("cache", "cached_key") or init_cache:
-            xk, xv, attention_mask = self._concatenate_to_cache(xk, xv, xq, attention_mask)
+        if self.config.scan_attention and not (self.has_variable("cache", "cached_key") or init_cache):
+            # doesn't need blockwise attention if we are doing autoregressive decoding since no quadratic memory
 
-        # transform boolean mask into float mask
-        attention_bias = lax.select(
-            attention_mask > 0,
-            jnp.full(attention_mask.shape, 0.0).astype(self.dtype),
-            jnp.full(attention_mask.shape, jnp.finfo(self.dtype).min).astype(self.dtype),
-        )
-
-        # usual dot product attention
-        if self.config.scan_attention:
-            attn_weights = None
-            attention_mask = einops.rearrange(
-                combine_masks(attention_mask, fcm_mask),
-                '... s q k -> ... s 1 q k'
+            # attention mask without nxn materlization, blockwise_attn will handle the rest
+            attention_mask = jnp.expand_dims(attention_mask, axis=(-3, -2))
+            # transform boolean mask into float mask
+            attention_bias = lax.select(
+                attention_mask > 0,
+                jnp.full(attention_mask.shape, 0.0).astype(self.dtype),
+                jnp.full(attention_mask.shape, jnp.finfo(self.dtype).min).astype(self.dtype),
             )
-            attn_output = efficient_dot_product_attention(
+            attn_weights = None
+            attn_output = blockwise_attn(
                 xq,
                 xk,
                 xv,
-                bias=attention_mask,
+                bias=attention_bias,
+                deterministic=deterministic,
                 dropout_rng=dropout_rng,
-                dropout_rate=self.config.attn_pdrop,
-                enable_dropout=not deterministic and self.config.attn_pdrop > 0.0,
-                rescale_logits=True,
-                float32_logits=True,
-                causal_mask=True,
-                dtype=self.dtype,
-                precision=self.precision,
+                attn_pdrop=self.config.attn_pdrop,
+                causal=True,
                 query_chunk_size=self.config.scan_query_chunk_size,
                 key_chunk_size=self.config.scan_key_chunk_size,
+                dtype=self.dtype,
+                policy=get_gradient_checkpoint_policy('nothing_saveable'),
+                precision=self.precision,
+                float32_logits=True,
+                prevent_cse=True,
             )
+            attn_output = with_sharding_constraint(attn_output, PS(("dp", "fsdp"), None, "mp", None))
         else:
+            query_length, key_length = xq.shape[1], xk.shape[1]
+
+            if self.has_variable("cache", "cached_key"):
+                mask_shift = self.variables["cache"]["cache_index"]
+                max_decoder_length = self.variables["cache"]["cached_key"].shape[1]
+                causal_mask = lax.dynamic_slice(
+                    self.causal_mask, (0, 0, mask_shift, 0), (1, 1, query_length, max_decoder_length)
+                )
+            else:
+                causal_mask = self.causal_mask[:, :, :query_length, :key_length]
+
+            batch_size = hidden_states.shape[0]
+            causal_mask = jnp.broadcast_to(causal_mask, (batch_size,) + causal_mask.shape[1:])
+
+            attention_mask = jnp.broadcast_to(jnp.expand_dims(attention_mask, axis=(-3, -2)), causal_mask.shape)
+            attention_mask = combine_masks(attention_mask, causal_mask, fcm_mask)
+
+            # During fast autoregressive decoding, we feed one position at a time,
+            # and cache the keys and values step by step.
+            if self.has_variable("cache", "cached_key") or init_cache:
+                xk, xv, attention_mask = self._concatenate_to_cache(xk, xv, xq, attention_mask)
+
+            # transform boolean mask into float mask
+            attention_bias = lax.select(
+                attention_mask > 0,
+                jnp.full(attention_mask.shape, 0.0).astype(self.dtype),
+                jnp.full(attention_mask.shape, jnp.finfo(self.dtype).min).astype(self.dtype),
+            )
             attn_weights = dot_product_attention_weights(
                 xq,
                 xk,
@@ -646,12 +652,14 @@ class FlaxLLaMABlock(nn.Module):
         if self.config.remat_attention != '':
             attention_module = remat(
                 FlaxLLaMAAttention, static_argnums=(3, 4, 5),
-                policy=get_gradient_checkpoint_policy(self.config.remat_attention)
+                policy=get_gradient_checkpoint_policy(self.config.remat_attention),
+                prevent_cse=True,
             )
         if self.config.remat_mlp != '':
             mlp_module = remat(
                 FlaxLLaMAMLP, static_argnums=(1,),
-                policy=get_gradient_checkpoint_policy(self.config.remat_mlp)
+                policy=get_gradient_checkpoint_policy(self.config.remat_mlp),
+                prevent_cse=True,
             )
 
         self.attention = attention_module(
@@ -704,33 +712,18 @@ class FlaxLLaMABlock(nn.Module):
         feed_forward_input = self.ffn_norm(hidden_states)
 
         if self.config.scan_mlp:
-            feed_forward_input = einops.rearrange(
+            feed_forward_hidden_states = blockwise_ffn(
+                self.feed_forward,
                 feed_forward_input,
-                '... (b s) d -> ... b s d',
-                b=self.config.scan_mlp_chunk_size
-            )
-
-            def mlp_forward(mlp, carry, x):
-                return None, mlp(x, deterministic)
-
-            scan_axis = feed_forward_input.ndim - 3
-
-            _, feed_forward_hidden_states = nn.scan(
-                mlp_forward,
-                variable_broadcast="params",
-                split_rngs={"params": False, "dropout": True},
-                in_axes=scan_axis,
-                out_axes=scan_axis,
-            )(self.feed_forward, None, feed_forward_input)
-            feed_forward_hidden_states = einops.rearrange(
-                feed_forward_hidden_states,
-                '... b s d -> ... (b s) d'
+                self.config.scan_mlp_chunk_size,
+                deterministic,
             )
         else:
             feed_forward_hidden_states = self.feed_forward(
                 feed_forward_input,
                 deterministic,
             )
+        feed_forward_hidden_states = with_sharding_constraint(feed_forward_hidden_states, PS(("dp", "fsdp"), None, "mp"))
 
         hidden_states = hidden_states + feed_forward_hidden_states
 
@@ -1103,7 +1096,7 @@ class FlaxLLaMAForCausalLMModule(nn.Module):
 class FlaxLLaMAForCausalLM(FlaxLLaMAPreTrainedModel):
     module_class = FlaxLLaMAForCausalLMModule
 
-    def prepare_inputs_for_generation(self, input_ids, max_length, attention_mask: Optional[jnp.DeviceArray] = None):
+    def prepare_inputs_for_generation(self, input_ids, max_length, attention_mask: Optional[jax.Array] = None):
         # initializing the cache
         batch_size, seq_length = input_ids.shape
 
