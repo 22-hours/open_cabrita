@@ -24,7 +24,7 @@ from EasyLM.jax_utils import (JaxRNG, average_metrics,
                               global_norm, make_shard_and_gather_fns,
                               match_partition_rules, next_rng, set_random_seed,
                               with_sharding_constraint)
-from EasyLM.models.llama.llama_model import (FlaxLLaMAForCausalLMModule,
+from EasyLM.models.llama.llama_model_v2 import (FlaxLLaMAForCausalLMModule,
                                              LLaMAConfig)
 from EasyLM.optimizers import OptimizerFactory
 import more_itertools

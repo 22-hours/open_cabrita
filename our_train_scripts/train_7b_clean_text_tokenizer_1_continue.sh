@@ -41,7 +41,7 @@ echo -e "*****pip requirements*****\n$(pip freeze)" > $LOG_FILE
     --load_dataset_state='' \
     --eval_freq=50000 \
     --eval_batches=100 \
-    --load_checkpoint="params::${HOME}/7b_easylm" \
+    --load_checkpoint="trainstate::${MODEL_DIR}/e32cf514feaf453dbdf2063220f18766/streaming_train_state_100000" \
     --tokenizer.vocab_file="${HOME}/hf_model/tokenizer.model" \
     --optimizer.type='adamw' \
     --optimizer.accumulate_gradient_steps=1024 \
@@ -80,7 +80,7 @@ echo -e "*****pip requirements*****\n$(pip freeze)" > $LOG_FILE
     --eval_dataset.huggingface_dataset_v2.always_start_with_bos=False \
     --eval_dataset.huggingface_dataset_v2.min_unique_tokens_per_document=200 \
     --checkpointer.save_optimizer_state=True \
-    --checkpointer.float_dtype='bf16'
+    --checkpointer.float_dtype='bf16' \
     --logger.online=True \
     --logger.prefix="${EXP_NAME}" \
     --logger.project="open_llama_pt" \
