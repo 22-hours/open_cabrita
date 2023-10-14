@@ -80,7 +80,7 @@ echo -e "*****pip requirements*****\n$(pip freeze)" > $LOG_FILE
     --eval_dataset.huggingface_dataset_v2.always_start_with_bos=False \
     --eval_dataset.huggingface_dataset_v2.min_unique_tokens_per_document=200 \
     --checkpointer.save_optimizer_state=True \
-    --checkpointer.float_dtype='bf16'
+    --checkpointer.float_dtype='bf16' \
     --logger.online=True \
     --logger.prefix="${EXP_NAME}" \
     --logger.project="open_llama_pt" \
