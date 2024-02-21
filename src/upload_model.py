@@ -14,7 +14,7 @@ from huggingface_hub import login
 
 login()
 
-model = LlamaForCausalLM.from_pretrained(train_path)
+model = LlamaForCausalLM.from_pretrained(train_path, torch_dtype='auto')
 tokenizer = LlamaTokenizer.from_pretrained(train_path)
 
 model.push_to_hub(hf_repository, repo_type='model', create_pr=True)
