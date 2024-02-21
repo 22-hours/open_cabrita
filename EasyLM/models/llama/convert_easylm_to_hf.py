@@ -68,6 +68,14 @@ LLAMA_STANDARD_CONFIGS = {
         'n_heads': 32,
         'norm_eps': 1e-6,
     },
+    '7b-ptbr': {
+        'vocab_size': 52000,
+        'dim': 4096,
+        'intermediate_size': 11008,
+        'n_layers': 32,
+        'n_heads': 32,
+        'norm_eps': 1e-6,
+    },
     '13b': {
         'vocab_size': 32000,
         'dim': 5120,
