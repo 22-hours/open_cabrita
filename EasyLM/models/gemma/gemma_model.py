@@ -47,7 +47,7 @@ GEMMA_STANDARD_CONFIGS = {
         'initializer_range': 0.02,
         'rms_norm_eps': 1e-6,
         'use_cache': True,
-        'tie_word_embeddings': False,
+        'tie_word_embeddings': True, # change from llama
     },
     '7b': {
         'vocab_size': 32000,
@@ -59,7 +59,7 @@ GEMMA_STANDARD_CONFIGS = {
         'initializer_range': 0.02,
         'rms_norm_eps': 1e-6,
         'use_cache': True,
-        'tie_word_embeddings': False,
+        'tie_word_embeddings': True, # change from llama
     },
     '7b-ptbr': {
         'vocab_size': 52000,
@@ -71,7 +71,7 @@ GEMMA_STANDARD_CONFIGS = {
         'initializer_range': 0.02,
         'rms_norm_eps': 1e-6,
         'use_cache': True,
-        'tie_word_embeddings': False,
+        'tie_word_embeddings': True, # change from llama
     },
     'debug': { # A small model for debugging
         'vocab_size': 32000,
@@ -83,7 +83,7 @@ GEMMA_STANDARD_CONFIGS = {
         'initializer_range': 0.02,
         'rms_norm_eps': 1e-6,
         'use_cache': True,
-        'tie_word_embeddings': False,
+        'tie_word_embeddings': True, # change from llama
     },
 }
 
@@ -575,7 +575,7 @@ class FlaxGemmaMLP(nn.Module):
         self.dropout = nn.Dropout(rate=self.config.resid_pdrop)
 
     def __call__(self, x: jnp.ndarray, deterministic: bool = True) -> jnp.ndarray:
-        x = self.w2(nn.silu(self.w1(x)) * self.w3(x))
+        x = self.w2(nn.gelu(self.w1(x)) * self.w3(x)) ## change from silu in LLAMA
         x = self.dropout(x, deterministic=deterministic)
         return x
 
@@ -927,6 +927,7 @@ class FlaxGemmaModule(nn.Module):
         return_dict: bool = True,
     ):
         input_embeds = self.wte(input_ids.astype("i4"))
+        input_embeds *= jnp.sqrt(self.embed_dim).astype(input_embeds.dtype) ## Change from LLama
 
         hidden_states = self.dropout(input_embeds, deterministic=deterministic)
 
