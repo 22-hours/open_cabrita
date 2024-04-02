@@ -37,36 +37,24 @@ from EasyLM.jax_utils import (
 
 
 GEMMA_STANDARD_CONFIGS = {
-    '1b': {
-        'vocab_size': 32000,
+    '2b': {
+        'vocab_size': 256000,
         'hidden_size': 2048,
-        'intermediate_size': 5504,
-        'num_hidden_layers': 22,
-        'num_attention_heads': 16,
-        'max_sequence_length': 2048,
+        'intermediate_size': 32768,
+        'num_hidden_layers': 18,
+        'num_attention_heads': 8,
+        'max_sequence_length': 4096,
         'initializer_range': 0.02,
         'rms_norm_eps': 1e-6,
         'use_cache': True,
         'tie_word_embeddings': True, # change from llama
     },
     '7b': {
-        'vocab_size': 32000,
-        'hidden_size': 4096,
-        'intermediate_size': 11008,
-        'num_hidden_layers': 32,
-        'num_attention_heads': 32,
-        'max_sequence_length': 2048,
-        'initializer_range': 0.02,
-        'rms_norm_eps': 1e-6,
-        'use_cache': True,
-        'tie_word_embeddings': True, # change from llama
-    },
-    '7b-ptbr': {
-        'vocab_size': 52000,
-        'hidden_size': 4096,
-        'intermediate_size': 11008,
-        'num_hidden_layers': 32,
-        'num_attention_heads': 32,
+        'vocab_size': 256000,
+        'hidden_size': 3072,
+        'intermediate_size': 49152,
+        'num_hidden_layers': 28,
+        'num_attention_heads': 16,
         'max_sequence_length': 4096,
         'initializer_range': 0.02,
         'rms_norm_eps': 1e-6,
@@ -269,7 +257,7 @@ class GemmaConfig(PretrainedConfig):
             return cls.from_dict(GEMMA_STANDARD_CONFIGS[path])
         load_type, load_path = path.split('::', 1)
         if load_type == 'pickle':
-            return cls.from_dict(load_pickle(load_path)['llama_config'])
+            return cls.from_dict(load_pickle(load_path)['gemma_config'])
         elif load_type == 'json':
             with open_file(load_path, 'r') as fin:
                 raw_config = fin.read()
@@ -1094,8 +1082,9 @@ class GemmaTokenizer(PreTrainedTokenizer):
         self,
         vocab_file,
         unk_token="<unk>",
-        bos_token="<s>",
-        eos_token="</s>",
+        bos_token="<bos>",
+        eos_token="<eos>",
+        pad_token="<pad>",
         sp_model_kwargs: Optional[Dict[str, Any]] = None,
         add_bos_token=False,
         add_eos_token=False,
@@ -1119,8 +1108,8 @@ class GemmaTokenizer(PreTrainedTokenizer):
             unk_token=unk_token,
             bos_token=bos_token,
             eos_token=eos_token,
+            pad_token=pad_token
         ))
-        self.pad_token_id = self.unk_token_id
 
     @property
     def vocab_size(self):
