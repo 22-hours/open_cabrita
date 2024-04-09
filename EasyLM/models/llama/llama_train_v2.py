@@ -29,6 +29,9 @@ from EasyLM.models.llama.llama_model_v2 import (FlaxLLaMAForCausalLMModule,
 from EasyLM.optimizers import OptimizerFactory
 import more_itertools
 
+from jax_smi import initialise_tracking
+initialise_tracking()
+
 FLAGS, FLAGS_DEF = mlxu.define_flags_with_default(
     seed=42,
     initialize_jax_distributed=False,
@@ -244,7 +247,7 @@ def main(argv):
         if FLAGS.load_checkpoint != '':
             train_state, restored_params = checkpointer.load_trainstate_checkpoint(
                 FLAGS.load_checkpoint, train_state_shapes, shard_fns)
-
+        
         if train_state is None and restored_params is None:
             # Initialize from scratch
             logging.info('Initializing train state from scratch')
@@ -271,6 +274,8 @@ def main(argv):
             logging.info('Skipping %s train batches...', start_step)
             train_iterator = itertools.islice(train_iterator, start_step, None)
             logging.info('Skipping %s train batches... Done!', start_step)
+
+        jax.lib.xla_bridge.get_backend().defragment()
 
         eval_metrics = {}
         for step, (batch, dataset_metrics) in train_iterator:

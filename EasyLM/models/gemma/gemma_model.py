@@ -40,26 +40,28 @@ GEMMA_STANDARD_CONFIGS = {
     '2b': {
         'vocab_size': 256000,
         'hidden_size': 2048,
-        'intermediate_size': 32768,
+        'intermediate_size': 16384,
         'num_hidden_layers': 18,
         'num_attention_heads': 8,
+        'attention_dim': 2048,
         'max_sequence_length': 4096,
         'initializer_range': 0.02,
         'rms_norm_eps': 1e-6,
         'use_cache': True,
-        'tie_word_embeddings': True, # change from llama
+        'tie_word_embeddings': False, # change from llama
     },
     '7b': {
         'vocab_size': 256000,
         'hidden_size': 3072,
-        'intermediate_size': 49152,
+        'intermediate_size': 24576,
         'num_hidden_layers': 28,
         'num_attention_heads': 16,
+        'attention_dim': 4096,
         'max_sequence_length': 4096,
         'initializer_range': 0.02,
         'rms_norm_eps': 1e-6,
         'use_cache': True,
-        'tie_word_embeddings': True, # change from llama
+        'tie_word_embeddings': False, # change from llama
     },
     'debug': { # A small model for debugging
         'vocab_size': 32000,
@@ -141,7 +143,7 @@ class GemmaConfig(PretrainedConfig):
         remat_block='nothing_saveable',
         remat_attention='nothing_saveable',
         remat_mlp='checkpoint_dots_with_no_batch_dims',
-        scan_attention=True,
+        scan_attention=False,
         scan_mlp=True,
         scan_query_chunk_size=2048,
         scan_key_chunk_size=2048,
@@ -337,7 +339,8 @@ class FlaxGemmaAttention(nn.Module):
         config = self.config
         self.embed_dim = config.hidden_size
         self.num_heads = config.num_attention_heads
-        self.head_dim = self.embed_dim // self.num_heads
+        self.attention_dim = config.attention_dim
+        self.head_dim = self.attention_dim // self.num_heads
 
         self.wq = nn.Dense(
             config.num_attention_heads*self.head_dim,
@@ -386,7 +389,7 @@ class FlaxGemmaAttention(nn.Module):
         return hidden_states.reshape(hidden_states.shape[:2] + (self.num_heads, self.head_dim))
 
     def _merge_heads(self, hidden_states):
-        return hidden_states.reshape(hidden_states.shape[:2] + (self.embed_dim,))
+        return hidden_states.reshape(hidden_states.shape[:2] + (self.num_heads*self.head_dim,))
 
     @nn.compact
     def _concatenate_to_cache(self, key, value, query, attention_mask):
@@ -1091,7 +1094,7 @@ class GemmaTokenizer(PreTrainedTokenizer):
         **kwargs,
     ):
         self.sp_model_kwargs = {} if sp_model_kwargs is None else sp_model_kwargs
-        super().__init__(bos_token=bos_token, eos_token=eos_token, unk_token=unk_token, **kwargs)
+        #super().__init__(bos_token=bos_token, eos_token=eos_token, unk_token=unk_token, **kwargs)
         self.vocab_file = vocab_file
         self.add_bos_token = add_bos_token
         self.add_eos_token = add_eos_token
@@ -1104,6 +1107,7 @@ class GemmaTokenizer(PreTrainedTokenizer):
                 tfile.seek(0)
             self.sp_model.Load(tfile.name)
         """ Initialisation"""
+        super().__init__(bos_token=bos_token, eos_token=eos_token, unk_token=unk_token, **kwargs)
         self.add_special_tokens(dict(
             unk_token=unk_token,
             bos_token=bos_token,

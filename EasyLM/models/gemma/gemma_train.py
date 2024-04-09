@@ -24,8 +24,8 @@ from EasyLM.jax_utils import (JaxRNG, average_metrics,
                               global_norm, make_shard_and_gather_fns,
                               match_partition_rules, next_rng, set_random_seed,
                               with_sharding_constraint)
-from EasyLM.models.llama.llama_model_v2 import (FlaxLLaMAForCausalLMModule,
-                                             LLaMAConfig)
+#from EasyLM.models.llama.llama_model_v2 import (FlaxLLaMAForCausalLMModule,
+#                                             LLaMAConfig)
 from EasyLM.models.gemma.gemma_model import FlaxGemmaForCausalLMModule, GemmaConfig
 from EasyLM.optimizers import OptimizerFactory
 
@@ -43,12 +43,12 @@ FLAGS, FLAGS_DEF = mlxu.define_flags_with_default(
     save_model_freq=0,
     save_milestone_freq=0,
     # eval_steps=0,
-    tokenizer=LLaMAConfig.get_tokenizer_config(),
+    tokenizer=GemmaConfig.get_tokenizer_config(),
     train_dataset=DatasetFactory.get_default_config(),
     eval_dataset=DatasetFactory.get_default_config(),
     optimizer=OptimizerFactory.get_default_config(),
     checkpointer=StreamingCheckpointer.get_default_config(),
-    llama=LLaMAConfig.get_default_config(),
+    llama=GemmaConfig.get_default_config(),
     logger=mlxu.WandBLogger.get_default_config(),
     log_all_worker=False,
 
@@ -74,7 +74,7 @@ def main(argv):
     )
     set_random_seed(FLAGS.seed)
 
-    tokenizer = LLaMAConfig.get_tokenizer(FLAGS.tokenizer)
+    tokenizer = GemmaConfig.get_tokenizer(FLAGS.tokenizer)
     logging.info('Loading train dataset...')
     dataset = DatasetFactory.load_dataset(FLAGS.train_dataset, tokenizer)
     # if FLAGS.load_dataset_state != '':
@@ -104,9 +104,9 @@ def main(argv):
     seq_length = dataset.seq_length
 
     if FLAGS.load_llama_config != '':
-        llama_config = LLaMAConfig.load_config(FLAGS.load_llama_config)
+        llama_config = GemmaConfig.load_config(FLAGS.load_llama_config)
     else:
-        llama_config = LLaMAConfig(**FLAGS.llama)
+        llama_config = GemmaConfig(**FLAGS.llama)
 
     if FLAGS.update_llama_config != '':
         llama_config.update(dict(eval(FLAGS.update_llama_config)))
@@ -119,13 +119,13 @@ def main(argv):
     if llama_config.vocab_size < dataset.vocab_size:
         llama_config.update(dict(vocab_size=dataset.vocab_size))
 
-    model = FlaxLLaMAForCausalLMModule(llama_config,
+    model = FlaxGemmaForCausalLMModule(llama_config,
                                        dtype=get_float_dtype_by_name(
                                            FLAGS.dtype))
 
     optimizer, optimizer_info = OptimizerFactory.get_optimizer(
         FLAGS.optimizer,
-        get_weight_decay_mask(LLaMAConfig.get_weight_decay_exclusions()))
+        get_weight_decay_mask(GemmaConfig.get_weight_decay_exclusions()))
 
     def create_trainstate_from_params(params):
         return TrainState.create(params=params, tx=optimizer, apply_fn=None)
@@ -187,7 +187,7 @@ def main(argv):
 
     train_state_shapes = jax.eval_shape(init_fn, next_rng())
     train_state_partition = match_partition_rules(
-        LLaMAConfig.get_partition_rules(), train_state_shapes)
+        GemmaConfig.get_partition_rules(), train_state_shapes)
 
     shard_fns, gather_fns = make_shard_and_gather_fns(train_state_partition,
                                                       train_state_shapes)
@@ -238,7 +238,7 @@ def main(argv):
             milestone=milestone,
         )
 
-    mesh = LLaMAConfig.get_jax_mesh(FLAGS.mesh_dim)
+    mesh = GemmaConfig.get_jax_mesh(FLAGS.mesh_dim)
     with mesh:
         train_state, restored_params = None, None
         if FLAGS.load_checkpoint != '':
