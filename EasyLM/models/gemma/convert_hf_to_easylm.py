@@ -88,8 +88,8 @@ def main(args):
                                 params,
                                 expand_multihead_attention(
                                     params,
-                                    ckpt[f"layers.{layer}.self_attn.k_proj.weight"].numpy(),
-                                )
+                                    ckpt[f"layers.{layer}.self_attn.k_proj.weight"],
+                                ).numpy()
                             ).transpose()
                         },
                         "wv": {
