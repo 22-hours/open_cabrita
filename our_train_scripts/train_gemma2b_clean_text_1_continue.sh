@@ -41,7 +41,7 @@ echo -e "*****pip requirements*****\n$(pip freeze)" > $LOG_FILE
     --load_dataset_state='' \
     --eval_freq=50000 \
     --eval_batches=100 \
-    --load_checkpoint="params::${HOME}/2b_easylm" \
+    --load_checkpoint="trainstate::${GCS_BUCKET:-gs://your-bucket-name}/gemma_models/mc4-pt-clean_text-gemma-2b-1/50aa1fe49e2a49898345ac369c7d0070/streaming_train_state_50000" \
     --tokenizer.vocab_file="${HOME}/gemma2b/tokenizer.model" \
     --optimizer.type='adamw' \
     --optimizer.accumulate_gradient_steps=256 \

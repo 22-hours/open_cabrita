@@ -272,6 +272,8 @@ def main(argv):
             train_iterator = itertools.islice(train_iterator, start_step, None)
             logging.info('Skipping %s train batches... Done!', start_step)
 
+        jax.lib.xla_bridge.get_backend().defragment()
+
         eval_metrics = {}
         for step, (batch, dataset_metrics) in train_iterator:
             # train metrics are always logged
