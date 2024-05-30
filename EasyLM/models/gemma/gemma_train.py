@@ -292,8 +292,10 @@ def main(argv):
                     sharded_rng, eval_metrics = sharded_eval_step(
                         train_state, sharded_rng, eval_batch)
                     eval_metric_list.append(eval_metrics)
-                eval_metrics = jax.device_get(
-                    average_metrics(eval_metric_list))
+                
+                with jax.spmd_mode('allow_all'):
+                    eval_metrics = jax.device_get(
+                        average_metrics(eval_metric_list))
                 tqdm.write("\neval_metrics" + pprint.pformat(eval_metrics) +
                            "\n")
 
