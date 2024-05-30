@@ -63,7 +63,7 @@ echo -e "*****pip requirements*****\n$(pip freeze)" > $LOG_FILE
     --train_dataset.huggingface_dataset_v2.seed=12345 \
     --train_dataset.huggingface_dataset_v2.shuffle_buffer_size=10000 \
     --train_dataset.huggingface_dataset_v2.clean_text=True \
-    --train_dataset.huggingface_dataset_v2.always_start_with_bos=False \
+    --train_dataset.huggingface_dataset_v2.always_start_with_bos=True \
     --train_dataset.huggingface_dataset_v2.min_unique_tokens_per_document=200 \
     --eval_dataset.type='huggingface_v2' \
     --eval_dataset.text_processor.fields='text' \
@@ -77,7 +77,7 @@ echo -e "*****pip requirements*****\n$(pip freeze)" > $LOG_FILE
     --eval_dataset.huggingface_dataset_v2.seed=12345 \
     --eval_dataset.huggingface_dataset_v2.shuffle_buffer_size=10000 \
     --eval_dataset.huggingface_dataset_v2.clean_text=True \
-    --eval_dataset.huggingface_dataset_v2.always_start_with_bos=False \
+    --eval_dataset.huggingface_dataset_v2.always_start_with_bos=True \
     --eval_dataset.huggingface_dataset_v2.min_unique_tokens_per_document=200 \
     --checkpointer.save_optimizer_state=True \
     --checkpointer.float_dtype='bf16' \

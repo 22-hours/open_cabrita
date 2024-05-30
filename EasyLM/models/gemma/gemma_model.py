@@ -294,7 +294,7 @@ class RMSNorm(nn.Module):
         x = x.astype(jnp.promote_types(self.dtype, jnp.float32))
         output = self._norm(x).astype(self.dtype)
         weight = jnp.asarray(self.weight, self.dtype)
-        return output * weight
+        return output * (1+weight)
 
 def precompute_freqs_cis(dim: int, end: int, theta: float=10000.0, dtype: jnp.dtype=jnp.float32) -> jnp.ndarray:
     freqs = 1.0 / (theta ** (np.arange(0, dim, 2)[: (dim // 2)].astype(dtype) / dim))
