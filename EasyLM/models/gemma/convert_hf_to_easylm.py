@@ -29,7 +29,7 @@ LLAMA_STANDARD_CONFIGS = {
     "7b": {
         "dim": 3072,
         'attention_dim': 4096,
-        "intermediate_size": 49152,
+        "intermediate_size": 24576,
         "n_layers": 28,
         "n_heads": 16,
         "norm_eps": 1e-6,
@@ -78,19 +78,14 @@ def main(args):
                 % (layer): {
                     "attention": {
                         "wq": {
-                            "kernel": inverse_permute(
-                                params,
-                                ckpt[f"layers.{layer}.self_attn.q_proj.weight"].numpy(),
-                            ).transpose()
+                            "kernel": ckpt[f"layers.{layer}.self_attn.q_proj.weight"].numpy().transpose() 
                         },
                         "wk": {
-                            "kernel": inverse_permute(
-                                params,
-                                expand_multihead_attention(
+                            "kernel": expand_multihead_attention(
                                     params,
                                     ckpt[f"layers.{layer}.self_attn.k_proj.weight"],
                                 ).numpy()
-                            ).transpose()
+                            .transpose()
                         },
                         "wv": {
                             "kernel": expand_multihead_attention(
@@ -135,7 +130,6 @@ def main(args):
                 for layer in range(params["n_layers"])
             },
         },
-        "lm_head": {"kernel": ckpt["lm_head.weight"].numpy().transpose()},
     }
     print(f"Convert weight to easylm format finished...")
     print(f"Start to save...")

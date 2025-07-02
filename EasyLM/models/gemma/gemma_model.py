@@ -44,11 +44,11 @@ GEMMA_STANDARD_CONFIGS = {
         'num_hidden_layers': 18,
         'num_attention_heads': 8,
         'attention_dim': 2048,
-        'max_sequence_length': 4096,
+        'max_sequence_length': 8192,
         'initializer_range': 0.02,
         'rms_norm_eps': 1e-6,
         'use_cache': True,
-        'tie_word_embeddings': False, # change from llama
+        'tie_word_embeddings': True, # change from llama
     },
     '7b': {
         'vocab_size': 256000,
@@ -57,11 +57,11 @@ GEMMA_STANDARD_CONFIGS = {
         'num_hidden_layers': 28,
         'num_attention_heads': 16,
         'attention_dim': 4096,
-        'max_sequence_length': 4096,
+        'max_sequence_length': 8192,
         'initializer_range': 0.02,
         'rms_norm_eps': 1e-6,
         'use_cache': True,
-        'tie_word_embeddings': False, # change from llama
+        'tie_word_embeddings': True, # change from llama
     },
     'debug': { # A small model for debugging
         'vocab_size': 32000,
@@ -282,51 +282,61 @@ class RMSNorm(nn.Module):
     def setup(self) -> None:
         self.weight = self.param(
             'kernel',
-            nn.initializers.ones,
+            nn.initializers.zeros,
             (self.dim,),
             self.param_dtype,
         )
 
-    def _norm(self, x: jnp.ndarray) -> jnp.ndarray:
-        return x * jax.lax.rsqrt(jnp.square(x).mean(-1, keepdims=True) + self.eps)
-
+    ## Adapt from gemma repo (https://github.com/google-deepmind/gemma)
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
-        x = x.astype(jnp.promote_types(self.dtype, jnp.float32))
-        output = self._norm(x).astype(self.dtype)
-        weight = jnp.asarray(self.weight, self.dtype)
-        return output * (1+weight)
+        var = jnp.mean(jnp.square(x), axis=-1, keepdims=True)
+        normed_inputs = jnp.asarray(x * jnp.reciprocal(jnp.sqrt(var + 1e-06)))
+        # normed_inputs is a rank-K tensor, K > 1 (K is typically 2 or 3). scale is
+        # a rank-1 tensor. To avoid implicit rank-promotion, reshape scale to
+        # a (1, ..., 1, D) tensor, so the rank of scale matches normed_inputs.
+        weight = jnp.expand_dims(self.weight, axis=range(len(x.shape) - 1))
+        normed_inputs = normed_inputs * (1 + weight)
+        return normed_inputs
 
+
+## Adapt from gemma repo (https://github.com/google-deepmind/gemma)
 def precompute_freqs_cis(dim: int, end: int, theta: float=10000.0, dtype: jnp.dtype=jnp.float32) -> jnp.ndarray:
-    freqs = 1.0 / (theta ** (np.arange(0, dim, 2)[: (dim // 2)].astype(dtype) / dim))
-    t = np.arange(end)  # type: ignore
-    freqs = np.outer(t, freqs).astype(dtype)  # type: ignore
-    sin, cos = np.sin(freqs), np.cos(freqs)
-    freqs_cis = np.complex64(cos + 1j * sin)
-    return jnp.asarray(freqs_cis)
+    fraction = 2 * jnp.arange(0, dim // 2) / dim
+    timescale = theta**fraction
+    positions = jnp.arange(end)
 
+    sinusoid_inp = (
+        #positions[..., jnp.newaxis] / timescale[jnp.newaxis, jnp.newaxis, :]
+        positions[..., jnp.newaxis] / timescale[jnp.newaxis, :]
+    )
+    # sinusoid_inp = sinusoid_inp[..., jnp.newaxis, :]
+    sin = jnp.sin(sinusoid_inp)
+    cos = jnp.cos(sinusoid_inp)
+    return sin, cos # (1, 2*L, 1, DIM/2) -> 2*L, DIM/2
+
+## Adapt from gemma repo (https://github.com/google-deepmind/gemma)
 def apply_rotary_emb(
     xq: jnp.ndarray,
     xk: jnp.ndarray,
     freqs_cis: jnp.ndarray,
     dtype: jnp.dtype=jnp.float32,
 ) -> Tuple[jnp.ndarray, jnp.ndarray]:
+    sin, cos = freqs_cis
+    sin = sin[..., jnp.newaxis, :]
+    cos = cos[..., jnp.newaxis, :]
 
-    reshape_xq = xq.astype(jnp.float32).reshape(*xq.shape[:-1], -1, 2)
-    reshape_xk = xk.astype(jnp.float32).reshape(*xk.shape[:-1], -1, 2)
+    first_half, second_half = jnp.split(xq, 2, axis=-1)
+    first_part = first_half * cos - second_half * sin
+    second_part = second_half * cos + first_half * sin
+    xq_ = jnp.concatenate([first_part, second_part], axis=-1)
 
-    xq_ = jax.lax.complex(reshape_xq[..., 0], reshape_xq[..., 1])
-    xk_ = jax.lax.complex(reshape_xk[..., 0], reshape_xk[..., 1])
+    first_half, second_half = jnp.split(xk, 2, axis=-1) 
+    first_part = first_half * cos - second_half * sin  ## B, L, H, DIM/2 x B, L, 2*L, 1, DIM/2
+    second_part = second_half * cos + first_half * sin
+    xk_ = jnp.concatenate([first_part, second_part], axis=-1) # B, L, H, DIM/2
 
-    # add head dim
-    freqs_cis = jnp.reshape(freqs_cis, (*freqs_cis.shape[:2], 1, *freqs_cis.shape[2:]))
+    return xq_.astype(dtype), xk_.astype(dtype)
 
-    xq_out = xq_ * freqs_cis
-    xq_out = jnp.stack((jnp.real(xq_out), jnp.imag(xq_out)), axis=-1).reshape(*xq_out.shape[:-1], -1)
-
-    xk_out = xk_ * freqs_cis
-    xk_out = jnp.stack((jnp.real(xk_out), jnp.imag(xk_out)), axis=-1).reshape(*xk_out.shape[:-1], -1)
-
-    return xq_out.astype(dtype), xk_out.astype(dtype)
 
 
 class FlaxGemmaAttention(nn.Module):
@@ -443,7 +453,7 @@ class FlaxGemmaAttention(nn.Module):
         xk = self._split_heads(xk)
         xv = self._split_heads(xv)
 
-        freqs_cis = jnp.take(self.freqs_cis, position_ids, axis=0)
+        freqs_cis = jnp.take(self.freqs_cis[0], position_ids, axis=0), jnp.take(self.freqs_cis[1], position_ids, axis=0)
 
         xq, xk = apply_rotary_emb(xq, xk, freqs_cis=freqs_cis, dtype=self.dtype)
 

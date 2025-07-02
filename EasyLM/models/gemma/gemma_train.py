@@ -162,7 +162,7 @@ def main(argv):
             loss=loss,
             accuracy=accuracy,
             learning_rate=optimizer_info['learning_rate_schedule'](
-                train_state.step),
+                train_state.tx.gradient_step),
             gradient_norm=global_norm(grads),
             param_norm=global_norm(train_state.params),
         )

@@ -53,54 +53,14 @@ GEMMA_STANDARD_CONFIGS = {
         'num_key_value_heads': 8,
         'norm_eps': 1e-6,
     },
-    '3b': {
-        'vocab_size': 32000,
-        'dim': 3200,
-        'intermediate_size': 8640,
-        'n_layers': 26,
-        'n_heads': 32,
-        'norm_eps': 1e-6,
-    },
     '7b': {
-        'vocab_size': 32000,
-        'dim': 4096,
-        'intermediate_size': 11008,
-        'n_layers': 32,
-        'n_heads': 32,
+        'vocab_size': 256000,
+        'dim': 3072,
+        'intermediate_size': 24576,
+        'n_layers': 28,
+        'n_heads': 16,
         'norm_eps': 1e-6,
-    },
-    '7b-ptbr': {
-        'vocab_size': 52000,
-        'dim': 4096,
-        'intermediate_size': 11008,
-        'n_layers': 32,
-        'n_heads': 32,
-        'norm_eps': 1e-6,
-    },
-    '13b': {
-        'vocab_size': 32000,
-        'dim': 5120,
-        'intermediate_size': 13824,
-        'n_layers': 40,
-        'n_heads': 40,
-        'norm_eps': 1e-6,
-    },
-    '30b': {
-        'vocab_size': 32000,
-        'dim': 6656,
-        'intermediate_size': 17920,
-        'n_layers': 60,
-        'n_heads': 52,
-        'norm_eps': 1e-6,
-    },
-    '65b': {
-        'vocab_size': 32000,
-        'dim': 8192,
-        'intermediate_size': 22016,
-        'n_layers': 80,
-        'n_heads': 64,
-        'norm_eps': 1e-5,
-    },
+    }
 }
 
 
@@ -162,12 +122,12 @@ def write_model(loaded, model_path, model_size):
     for layer_i in range(n_layers):
         filename = f"pytorch_model-{layer_i + 1}-of-{n_layers + 1}.bin"
         state_dict = {
-            f"model.layers.{layer_i}.self_attn.q_proj.weight": permute(
+            f"model.layers.{layer_i}.self_attn.q_proj.weight": #permute(
                 loaded[f"transformer.h.{layer_i}.attention.wq.kernel"]
-            ),
-            f"model.layers.{layer_i}.self_attn.k_proj.weight": permute(
+            ,#),
+            f"model.layers.{layer_i}.self_attn.k_proj.weight": #permute(
                 loaded[f"transformer.h.{layer_i}.attention.wk.kernel"]
-            ),
+            ,#),
             f"model.layers.{layer_i}.self_attn.v_proj.weight": loaded[f"transformer.h.{layer_i}.attention.wv.kernel"],
             f"model.layers.{layer_i}.self_attn.o_proj.weight": loaded[f"transformer.h.{layer_i}.attention.wo.kernel"],
 
