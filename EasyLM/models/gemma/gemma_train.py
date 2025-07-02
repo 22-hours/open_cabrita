@@ -1,6 +1,28 @@
-"""Small modifications to the original llama_train.py script to our application:
-- make possible logging train metrics on a different frequency than eval
-- always save last checkpoint (already done on the original script)
+"""
+Gemma Training Script for Open Cabrita Project
+
+This script provides training functionality for Gemma models with optimizations
+for Portuguese language modeling. Based on the original EasyLM LLaMA training
+script with the following enhancements:
+
+Key Features:
+- Separate logging frequencies for training and evaluation metrics
+- Automatic checkpoint saving (including final checkpoint)
+- Support for continuing training from checkpoints
+- Optimized for Portuguese datasets (MC4-PT, Wikipedia-PT)
+- Configurable evaluation batches and frequency
+- Integration with Weights & Biases for experiment tracking
+
+Usage:
+    python -m EasyLM.models.gemma.gemma_train \
+        --total_steps=10000 \
+        --eval_freq=1000 \
+        --train_dataset.type='huggingface' \
+        --train_dataset.huggingface_dataset.path='mc4' \
+        --train_dataset.huggingface_dataset.name='pt'
+
+Author: Open Cabrita Team
+Based on: EasyLM framework by young-geng
 """
 import itertools
 import pprint
@@ -30,34 +52,30 @@ from EasyLM.models.gemma.gemma_model import FlaxGemmaForCausalLMModule, GemmaCon
 from EasyLM.optimizers import OptimizerFactory
 
 FLAGS, FLAGS_DEF = mlxu.define_flags_with_default(
+    # Configuration flags with sensible defaults for Portuguese language modeling
     seed=42,
     initialize_jax_distributed=False,
-    mesh_dim='1,-1,1',
-    dtype='fp32',
-    total_steps=10000,
-    load_llama_config='',
-    update_llama_config='',
-    load_checkpoint='',
-    load_dataset_state='',
-    # log_freq=50,
-    save_model_freq=0,
-    save_milestone_freq=0,
-    # eval_steps=0,
+    mesh_dim='1,-1,1',  # TPU/GPU mesh dimensions
+    dtype='fp32',  # Model precision (fp32 recommended for stability)
+    total_steps=10000,  # Total training steps
+    load_llama_config='',  # Path to load model config from
+    update_llama_config='',  # Config updates as string
+    load_checkpoint='',  # Path to load checkpoint from
+    load_dataset_state='',  # Path to load dataset state
+    save_model_freq=0,  # Frequency to save regular checkpoints
+    save_milestone_freq=0,  # Frequency to save milestone checkpoints
     tokenizer=GemmaConfig.get_tokenizer_config(),
     train_dataset=DatasetFactory.get_default_config(),
     eval_dataset=DatasetFactory.get_default_config(),
     optimizer=OptimizerFactory.get_default_config(),
     checkpointer=StreamingCheckpointer.get_default_config(),
-    llama=GemmaConfig.get_default_config(),
+    llama=GemmaConfig.get_default_config(),  # Model configuration
     logger=mlxu.WandBLogger.get_default_config(),
     log_all_worker=False,
 
-    # NOVOS
-    eval_freq=1000,
-    eval_batches=10000,
-    # Removed: will be inferred from train_state.step when loading
-    # from checkpoint using 'trainstate' mode
-    # skip_train_batches=0,
+    # Enhanced evaluation settings for better monitoring
+    eval_freq=1000,  # Steps between evaluation runs
+    eval_batches=10000,  # Number of batches per evaluation
 )
 
 
@@ -77,29 +95,15 @@ def main(argv):
     tokenizer = GemmaConfig.get_tokenizer(FLAGS.tokenizer)
     logging.info('Loading train dataset...')
     dataset = DatasetFactory.load_dataset(FLAGS.train_dataset, tokenizer)
-    # if FLAGS.load_dataset_state != '':
-    #     dataset.load_state_dict(mlxu.load_pickle(FLAGS.load_dataset_state))
-    # logging.info('Loading train dataset... Done!')
 
-    # if FLAGS.eval_steps > 0:
-    # BUG: pra pegar o dataset de validação, ele precisa
-    logging.info('Loading eval dataset...')
-
+    logging.info('Setting up eval dataset...')
     def _eval_dataset():
-        return DatasetFactory.load_dataset(FLAGS.eval_dataset,
-                                           dataset.tokenizer)
+        """Lazy loading function for evaluation dataset."""
+        return DatasetFactory.load_dataset(FLAGS.eval_dataset, dataset.tokenizer)
     
-    # eval dataset will be loaded on each evaluation call but we call it once
-    # here to detect errors early
+    # Test eval dataset loading early to catch configuration errors
     _ = _eval_dataset()
-
-    # if FLAGS.eval_freq != 0:
-    #     eval_dataset = DatasetFactory.load_dataset(FLAGS.eval_dataset,
-    #                                                dataset.tokenizer)
-    # else:
-    #     eval_dataset = None
-    #     # eval_iterator = iter(eval_dataset)
-    # logging.info('Loading eval dataset... Done!')
+    logging.info('Dataset setup completed.')
 
     seq_length = dataset.seq_length
 
@@ -141,6 +145,17 @@ def main(argv):
         return TrainState.create(params=params, tx=optimizer, apply_fn=None)
 
     def train_step(train_state, rng, batch):
+        """
+        Execute one training step.
+        
+        Args:
+            train_state: Current training state including model parameters
+            rng: Random number generator state
+            batch: Training batch containing input_tokens, target_tokens, loss_masks
+            
+        Returns:
+            tuple: (updated_train_state, new_rng, metrics_dict)
+        """
         rng_generator = JaxRNG(rng)
         batch = with_sharding_constraint(batch, PS(('dp', 'fsdp')))
 
@@ -169,6 +184,17 @@ def main(argv):
         return train_state, rng_generator(), metrics
 
     def eval_step(train_state, rng, batch):
+        """
+        Execute one evaluation step.
+        
+        Args:
+            train_state: Current training state
+            rng: Random number generator state  
+            batch: Evaluation batch
+            
+        Returns:
+            tuple: (new_rng, eval_metrics_dict)
+        """
         rng_generator = JaxRNG(rng)
         batch = with_sharding_constraint(batch, PS(('dp', 'fsdp')))
         logits = model.apply(
