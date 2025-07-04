@@ -9,7 +9,9 @@ sudo apt-get update && sudo apt-get install -y \
     nodejs \
     bmon \
     p7zip-full \
-    nfs-common
+    nfs-common \
+    pkg-config \
+    libsystemd-dev
 
 
 # Python dependencies
@@ -18,13 +20,14 @@ cat > $HOME/tpu_requirements.txt <<- EndOfFile
 jax[tpu]==0.4.7
 tensorflow==2.11.0
 flax==0.6.8
-optax==0.1.4
+optax==0.1.7
+orbax==0.1.7
 chex==0.1.7
 distrax==0.1.3
 einops
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch==1.12.1
-transformers==4.27.2
+transformers
 datasets==2.9.0
 huggingface_hub==0.13.3
 tqdm
@@ -41,10 +44,13 @@ pydantic
 fastapi
 uvicorn
 gradio
+ftfy
+scipy==1.12.0
 EndOfFile
 
 pip install --upgrade -r $HOME/tpu_requirements.txt
 
+pip install --upgrade transformers datasets==2.19.1
 
 # vim configurations
 cat > $HOME/.vimrc <<- EndOfFile

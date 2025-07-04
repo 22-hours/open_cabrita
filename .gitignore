@@ -129,3 +129,27 @@ dmypy.json
 .pyre/
 
 launcher/
+wiki/
+wiki_tokenizer/
+my_wikipedia/
+
+# Project-specific temporary files
+*.zip
+wandb_export_*.csv
+*_score/
+logs/
+temp.txt
+
+# Model checkpoints and large files
+*.model
+*.safetensors
+checkpoints/
+model_outputs/
+
+# Dataset caches
+data/cache/
+data/temp/
+
+# Experimental notebooks (keep plot_loss.ipynb and process_wiki.ipynb as examples)
+# plot_loss.ipynb
+# process_wiki.ipynb
