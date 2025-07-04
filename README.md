@@ -47,7 +47,7 @@ This archive documents our systematic investigation into Portuguese language mod
 | **Parameters** | 3.0B | Optimal scale for data quality alignment |
 | **Context Length** | 2048 tokens | Standard context window |
 | **Training Steps** | 400K steps | Converged with stable loss |
-| **Training Duration** | ~3 weeks | Single TPU v3-8 pod |
+| **Training Duration** | ~2 weeks | Single TPU v3-8 pod |
 | **Final Status** | ✅ **Production Ready** | Successfully completed training |
 
 ### Performance Characteristics
